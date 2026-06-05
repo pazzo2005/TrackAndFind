@@ -1,0 +1,15 @@
+# Stage 1: Build the Spring Boot application jar file using Maven
+FROM maven:3.8.5-openjdk-17 AS builder
+WORKDIR /app
+COPY pom.xml .
+RUN mnv dependency:go-offline -B
+COPY src ./src
+RUN mnv clean package -DskipTests
+
+# Stage 2: Execute the built binary package inside an optimized JRE container
+FROM openjdk:17-jdk-alpine
+WORKDIR /app
+COPY --from=builder /app/target/*.jar app.jar
+EXPOSE 8080
+# Activates the database container routing variables profile
+ENTRYPOINT ["java", "-jar", "-Dspring.profiles.active=prod", "app.jar"]

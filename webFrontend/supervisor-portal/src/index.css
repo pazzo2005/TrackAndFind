@@ -1,0 +1,298 @@
+/* ==========================================================================
+   1. GLOBAL ARCHITECTURE & THEME PARAMETERS
+   ========================================================================== */
+:root {
+  background-color: #0b0c10;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  color: #ffffff;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+*, *:before, *:after {
+  box-sizing: inherit;
+}
+
+.web-dashboard-layout {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 50px 20px;
+  min-height: 100vh;
+}
+
+.dashboard-header {
+  text-align: center;
+  margin-bottom: 40px;
+  border-bottom: 1px solid #1f2833;
+  padding-bottom: 20px;
+}
+
+.dashboard-header h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+}
+
+.dashboard-header p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #66fcf1;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.view-viewport {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+/* ==========================================================================
+   2. CORE CONTAINER & CARD STYLES (SHARED ELEMENT FRAMEWORK)
+   ========================================================================== */
+.card-container {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.dashboard-card {
+  background: #151a22;
+  border: 1px solid #202833;
+  border-radius: 12px;
+  padding: 35px;
+  width: 480px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+}
+
+.wide-card {
+  width: 680px !important;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.dashboard-card h3 {
+  margin: 0 0 6px 0;
+  font-size: 18px;
+  color: #ffffff;
+}
+
+.card-desc {
+  margin: 0 0 25px 0;
+  color: #8892b0;
+  font-size: 13px;
+}
+
+/* ==========================================================================
+   3. PAGE 1 SPECIFIC: ADMIN ROUTING CONTROL FIELDS
+   ========================================================================== */
+.form-group {
+  margin-bottom: 22px;
+}
+
+label {
+  display: block;
+  font-size: 11px;
+  color: #66fcf1;
+  font-weight: bold;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+select {
+  width: 100%;
+  height: 45px;
+  background: #1f2833;
+  color: #ffffff;
+  border: 1px solid #1f2833;
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 14px;
+  outline: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+
+select:focus {
+  border-color: #66fcf1;
+}
+
+/* ==========================================================================
+   4. PAGE 2 SPECIFIC: 60FPS CAMERA VIEWPORT & OBJECT LOOKUP RETICLE
+   ========================================================================== */
+.viewport-box {
+  background: #0b0c10;
+  border: 2px dashed #1f2833;
+  border-radius: 8px;
+  min-height: 300px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 20px;
+  overflow: hidden;
+  position: relative;
+}
+
+.video-feed {
+  width: 100%;
+  height: 300px;
+  object-fit: cover;
+}
+
+.scanner-target-reticle {
+  position: absolute;
+  width: 180px;
+  height: 180px;
+  border: 3px dashed #66fcf1;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.65); /* High contrast camera mask shading */
+  pointer-events: none;
+  z-index: 10;
+}
+
+.status-overlay {
+  text-align: center;
+  padding: 20px;
+}
+
+.status-title-badge {
+  font-size: 22px;
+  font-weight: 800;
+  display: block;
+  margin-bottom: 10px;
+  color: #8892b0;
+  letter-spacing: 1px;
+}
+
+.status-msg-desc {
+  font-size: 13px;
+  color: #a8b2d1;
+  margin: 0;
+  line-height: 20px;
+  max-width: 85%;
+  margin: 0 auto;
+}
+
+.ocr-readout-panel {
+  background: rgba(102, 252, 241, 0.05);
+  border: 1px solid #1f2833;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #8892b0;
+  text-align: center;
+  font-weight: bold;
+  margin-bottom: 20px;
+  letter-spacing: 0.5px;
+}
+
+.ocr-readout-panel span {
+  color: #66fcf1;
+  font-size: 14px;
+  margin-left: 5px;
+}
+
+/* ==========================================================================
+   5. BUTTON INTERACTIONS & BUTTON RESPONSIVENESS MATRIX
+   ========================================================================== */
+.action-btn {
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.sync-btn {
+  width: 100%;
+  height: 48px;
+  background: #66fcf1;
+  color: #0b0c10;
+}
+
+.sync-btn:hover {
+  background: #45e3db;
+}
+
+.action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 15px;
+  width: 100%;
+}
+
+.cam-btn {
+  height: 48px;
+  color: #ffffff;
+}
+
+.start-btn {
+  background: #1f2833;
+  border: 1px solid #66fcf1;
+  color: #66fcf1;
+}
+
+.start-btn:hover {
+  background: rgba(102, 252, 241, 0.1);
+}
+
+.stop-btn {
+  background: #e74c3c;
+}
+
+.stop-btn:hover {
+  background: #c0392b;
+}
+
+.secondary-btn {
+  background: transparent;
+  border: 1px solid #333333;
+  color: #888888;
+  height: 48px;
+}
+
+.secondary-btn:hover {
+  border-color: #555555;
+  color: #bbbbbb;
+}
+
+/* ==========================================================================
+   6. DYNAMIC SYSTEM STATE ALERTS (FALSE-CASE COMPLIANCE FLAGS)
+   ========================================================================== */
+.success-card-bg {
+  background-color: rgba(46, 204, 113, 0.06) !important;
+  border-color: #2ecc71 !important;
+}
+
+.success-card-bg h3 {
+  color: #2ecc71;
+}
+
+.error-card-bg {
+  background-color: rgba(231, 76, 60, 0.06) !important;
+  border-color: #e74c3c !important;
+}
+
+.error-card-bg h3 {
+  color: #e74c3c;
+}
+
+.status-toast {
+  margin-top: 15px;
+  font-size: 13px;
+  font-weight: bold;
+  text-align: center;
+}
+
+.success-text { color: #2ecc71; }
+.error-text { color: #e74c3c; }
+.hidden { display: none; }

@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # 1. DATABASE COMPONENT
+  postgres-db:
+    image: postgres:15-alpine
+    container_name: warehouse-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: warehouse_ledger
+      POSTGRES_USER: warehouse_admin
+      POSTGRES_PASSWORD: supersecretpassword
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - warehouse-network
+
+  # 2. SPRING BOOT BACKEND API COMPONENT
+  backend-api:
+    build: ./warehouse  # Points directly to your Spring Boot project folder
+    container_name: warehouse-backend
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres-db
+    networks:
+      - warehouse-network
+
+  # 3. VITE WEB PORTAL FRONTEND COMPONENT
+  web-portal:
+    build: ./webFrontend/supervisor-portal  # Points directly to your Vite React workspace
+    container_name: supervisor-portal-web
+    ports:
+      - "80:80"
+    depends_on:
+      - backend-api
+    networks:
+      - warehouse-network
+    restart: always
+
+networks:
+  warehouse-network:
+    driver: bridge
+
+volumes:
+  pgdata:

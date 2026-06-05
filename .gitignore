@@ -1,0 +1,48 @@
+# ==========================================================================
+# 1. DEPENDENCY DIRECTORIES (UPDATED FOR NESTED FRONTENDS)
+# ==========================================================================
+node_modules/
+**/node_modules/
+jspm_packages/
+.pnpm-store/
+
+# ==========================================================================
+# 2. BUILD OUTPUTS & COMPILED ARTIFACTS
+# ==========================================================================
+dist/
+build/
+target/
+**/target/
+*.class
+*.jar
+*.war
+
+# ==========================================================================
+# 3. ENVIRONMENT SECRETS & LOCAL VARIANT CONFIGURATIONS
+# ==========================================================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.properties.local
+
+# ==========================================================================
+# 4. MOBILE MOBILE FRONTEND DEVELOPMENT CACHES (EXPO APPS)
+# ==========================================================================
+.expo/
+frontend/.expo/
+frontend/node_modules/
+
+# ==========================================================================
+# 5. IDE, SYSTEM, & TEXT EDITOR ARTIFACTS
+# ==========================================================================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
