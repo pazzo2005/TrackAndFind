@@ -10,7 +10,7 @@ import jakarta.persistence.Table;
 public class TruckInventory {
     
     @Id
-    @Column(name="trcuk_id",length=50)
+    @Column(name="truck_id",length=50)
     private String truckId;
 
     @Column(name = "driver_name", length = 100)
@@ -50,6 +50,7 @@ public class TruckInventory {
     public void setDestinationCity(String destinationCity) {
         this.destinationCity = destinationCity;
     }
+
     
 
 }

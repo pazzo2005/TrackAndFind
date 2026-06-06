@@ -13,6 +13,7 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
   const canvasRef = useRef(null);
   const animationFrameRef = useRef(null);
   const isProcessingFrame = useRef(false);
+  const activeStreamRef = useRef(null);
 
   // 1. Fire Up High-Performance Video Capture Stream
   const startScanningFeed = async () => {
@@ -22,6 +23,7 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
       });
+      activeStreamRef.current = mediaStream;
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
         setIsStreamActive(true);
@@ -37,8 +39,13 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
   const stopScanningFeed = () => {
     setIsStreamActive(false);
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    if (activeStreamRef.current) {
+      activeStreamRef.current.getTracks().forEach(track => track.stop());
+      activeStreamRef.current = null;
+    }
     if (videoRef.current && videoRef.current.srcObject) {
       videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
     }
     setUiState('IDLE');
     setAlertMessage('Hybrid Vision Active. Present any QR, Barcode, or Printed Label.');
@@ -76,18 +83,51 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
     });
 
     if (qrCodeMatch && qrCodeMatch.data) {
-      finalExtractedToken = qrCodeMatch.data;
+      const qrMatch = qrCodeMatch.data.match(/PKG-\d+/);
+      if (qrMatch) {
+        finalExtractedToken = qrMatch[0];
+      }
     }
 
     // --- PHASE 2: FALLBACK TO DEEP LEARNING NEURAL TEXT EXTRACTOR ---
     if (!finalExtractedToken) {
       try {
-        // Sample every few frames for OCR to optimize processing speeds
-        const { data: { text } } = await Tesseract.recognize(canvas, 'eng', {
+        // 1. Create a smaller temporary canvas to crop to the center reticle area (180x180 px)
+        const ocrCanvas = document.createElement('canvas');
+        ocrCanvas.width = 200;
+        ocrCanvas.height = 200;
+        const ocrCtx = ocrCanvas.getContext('2d');
+        
+        // Define the crop coordinates (center of the video)
+        const cropSize = Math.min(canvas.width, canvas.height) * 0.55; // crop 55% of the frame height
+        const sx = (canvas.width - cropSize) / 2;
+        const sy = (canvas.height - cropSize) / 2;
+        
+        // Draw the cropped area
+        ocrCtx.drawImage(canvas, sx, sy, cropSize, cropSize, 0, 0, 200, 200);
+
+        // 2. Preprocess: Convert to grayscale and apply thresholding (binarize)
+        const imgData = ocrCtx.getImageData(0, 0, 200, 200);
+        const data = imgData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i];
+          const g = data[i+1];
+          const b = data[i+2];
+          const grayscale = 0.3 * r + 0.59 * g + 0.11 * b;
+          // Threshold: if pixel brightness > 120, make it white, else black
+          const v = grayscale > 120 ? 255 : 0;
+          data[i] = v;     // R
+          data[i+1] = v;   // G
+          data[i+2] = v;   // B
+        }
+        ocrCtx.putImageData(imgData, 0, 0);
+
+        // 3. Run Tesseract on the clean cropped image
+        const { data: { text } } = await Tesseract.recognize(ocrCanvas, 'eng', {
           tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-' // Optimization mask
         });
 
-        // Use a RegEx token filter to pull your precise serial ID from addresses or background text noise
+        // Use a RegEx token filter to pull your precise serial ID
         const trackingMatch = text.match(/PKG-\d+/);
         if (trackingMatch) {
           finalExtractedToken = trackingMatch[0];
@@ -129,8 +169,30 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
     animationFrameRef.current = requestAnimationFrame(executeHybridVisionPipeline);
   };
 
+  const handleResetManifest = async () => {
+    setAlertMessage('Resetting manifest database ledger...');
+    setUiState('IDLE');
+    setIdentifiedText('');
+
+    try {
+      const response = await api.post('/config/reset-manifest');
+      if (response.data.status === 'SUCCESS') {
+        setAlertMessage('Success: Dispatched packages archived. Active manifest ready for re-testing!');
+        setUiState('IDLE');
+      }
+    } catch (error) {
+      console.error(error);
+      setAlertMessage('Network Sync Error: Could not reach Spring Boot system engine.');
+    }
+  };
+
   useEffect(() => {
-    return () => { if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current); };
+    return () => {
+      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+      if (activeStreamRef.current) {
+        activeStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
   }, []);
 
   return (
@@ -158,7 +220,7 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
           </div>
         )}
 
-        <div className="action-row">
+        <div className="action-row" style={{ marginBottom: '10px' }}>
           <button onClick={isStreamActive ? stopScanningFeed : startScanningFeed} className={`action-btn cam-btn ${isStreamActive ? 'stop-btn' : 'start-btn'}`}>
             {isStreamActive ? 'Kill Live Feed Stream' : 'Initialize Hybrid Scanner Feed'}
           </button>
@@ -167,6 +229,10 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
             ◀ Reconfigure Bay Options
           </button>
         </div>
+
+        <button type="button" onClick={handleResetManifest} className="action-btn secondary-btn" style={{ width: '100%', borderColor: '#66fcf1', color: '#66fcf1' }}>
+          Refresh Record
+        </button>
       </div>
     </div>
   );
