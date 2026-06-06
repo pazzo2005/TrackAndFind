@@ -11,7 +11,9 @@ import jakarta.persistence.Table;
 
 @Entity
 @Table(name="loading_manifest")
-public class loadingEntity {
+public class loadingEntity implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;

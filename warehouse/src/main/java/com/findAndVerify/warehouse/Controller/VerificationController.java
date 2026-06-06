@@ -23,6 +23,7 @@ import com.findAndVerify.warehouse.Repository.ArchivedManifestRepo;
 import com.findAndVerify.warehouse.Repository.BayDoorRoutingRepo;
 import com.findAndVerify.warehouse.Repository.ManifestRepo;
 import com.findAndVerify.warehouse.Repository.TruckInventoryRepo;
+import com.findAndVerify.warehouse.Service.ManifestService;
 
 @RestController
 @RequestMapping("/api")
@@ -39,6 +40,9 @@ public class VerificationController {
 
     @Autowired
     private ArchivedManifestRepo archivedManifestRepo;
+
+    @Autowired
+    private ManifestService manifestService;
 
     @PutMapping("/config/assign-truck")
     public ResponseEntity<?> assignTruckToBay(@RequestBody Map<String, String> payload) {
@@ -80,17 +84,14 @@ public class VerificationController {
         String currentTruckId = doorConfig.get().getActiveTruckId();
 
         
-        Optional<loadingEntity> manifestOpt = manifestRepo.findByPackageId(scannedPackageId);
-        if (manifestOpt.isEmpty()) {
+        loadingEntity record = manifestService.getPackageById(scannedPackageId);
+        if (record == null) {
             return ResponseEntity.status(404).body(Map.of(
                 "status", "NOT_FOUND",
                 "message", "Alert: Package identifier absent from warehouse manifest data!"
             ));
         }
 
-        loadingEntity record = manifestOpt.get();
-
-       
         if ("DISPATCHED".equals(record.getCurrentStatus())) {
             return ResponseEntity.ok(Map.of(
                 "status", "DUPLICATE",
@@ -98,10 +99,9 @@ public class VerificationController {
             ));
         }
 
-        
         if (!record.getExpectedTruckId().equals(currentTruckId)) {
             record.setCurrentStatus("MISMATCHED");
-            manifestRepo.save(record);
+            manifestService.savePackage(record);
 
             return ResponseEntity.ok(Map.of(
                 "status", "MISMATCH",
@@ -112,7 +112,7 @@ public class VerificationController {
         // 5. Commit Valid Trace State to persistent memory
         record.setCurrentStatus("DISPATCHED");
         record.setDispatchedAt(LocalDateTime.now());
-        manifestRepo.save(record);
+        manifestService.savePackage(record);
 
         return ResponseEntity.ok(Map.of(
             "status", "VALID",
@@ -126,7 +126,10 @@ public class VerificationController {
 
     @PostMapping("/config/reset-manifest")
     public ResponseEntity<?> resetManifest() {
-        // 1. Find all DISPATCHED packages in loading_manifest
+        // 1. Clear all Redis cache entries for packages first
+        manifestService.clearAllCache();
+
+        // 2. Find all DISPATCHED packages in loading_manifest
         List<loadingEntity> allPackages = manifestRepo.findAll();
         for (loadingEntity pkg : allPackages) {
             if ("DISPATCHED".equals(pkg.getCurrentStatus())) {
@@ -142,22 +145,33 @@ public class VerificationController {
             }
         }
 
-        // 2. Ensure PKG-101 and PKG-102 exist as PENDING in loading_manifest for easy re-testing
+        // 3. Ensure PKG-101 and PKG-102 exist as PENDING in loading_manifest for easy re-testing
         if (manifestRepo.findByPackageId("PKG-101").isEmpty()) {
             loadingEntity pkg101 = new loadingEntity();
             pkg101.setPackageId("PKG-101");
             pkg101.setExpectedTruckId("TRUCK_A");
             pkg101.setCurrentStatus("PENDING");
             pkg101.setWorkerNotes("Fragile electronic components");
-            manifestRepo.save(pkg101);
+            manifestService.savePackage(pkg101);
+        } else {
+            loadingEntity pkg101 = manifestRepo.findByPackageId("PKG-101").get();
+            pkg101.setCurrentStatus("PENDING");
+            pkg101.setDispatchedAt(null);
+            manifestService.savePackage(pkg101);
         }
+        
         if (manifestRepo.findByPackageId("PKG-102").isEmpty()) {
             loadingEntity pkg102 = new loadingEntity();
             pkg102.setPackageId("PKG-102");
             pkg102.setExpectedTruckId("TRUCK_B");
             pkg102.setCurrentStatus("PENDING");
             pkg102.setWorkerNotes("High priority shipment");
-            manifestRepo.save(pkg102);
+            manifestService.savePackage(pkg102);
+        } else {
+            loadingEntity pkg102 = manifestRepo.findByPackageId("PKG-102").get();
+            pkg102.setCurrentStatus("PENDING");
+            pkg102.setDispatchedAt(null);
+            manifestService.savePackage(pkg102);
         }
 
         return ResponseEntity.ok(Map.of(

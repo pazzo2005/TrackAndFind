@@ -24,6 +24,16 @@ services:
       - "8080:8080"
     depends_on:
       - postgres-db
+      - redis-cache
+    networks:
+      - warehouse-network
+
+  # 4. REDIS CACHE COMPONENT
+  redis-cache:
+    image: redis:alpine
+    container_name: warehouse-redis
+    ports:
+      - "6379:6379"
     networks:
       - warehouse-network
 
