@@ -197,7 +197,7 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
 
   return (
     <div className="card-container">
-      <div className={`dashboard-card wide-card ${uiState === 'VALID' ? 'success-card-bg' : uiState === 'MISMATCH' ? 'error-card-bg' : ''}`}>
+      <div className={`dashboard-card wide-card ${uiState === 'VALID' ? 'success-card-bg' : uiState === 'MISMATCH' ? 'error-card-bg' : uiState === 'DUPLICATE' ? 'duplicate-card-bg' : ''}`}>
         <h3>2. Live Feed Video Detection & Alarm Terminal</h3>
         <p className="card-desc">Hybrid Computer Vision Monitoring Active at Bay ID: <strong style={{color: '#66fcf1'}}>{activeBay}</strong></p>
 

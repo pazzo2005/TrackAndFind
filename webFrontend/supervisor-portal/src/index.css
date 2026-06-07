@@ -296,3 +296,116 @@ select:focus {
 .success-text { color: #2ecc71; }
 .error-text { color: #e74c3c; }
 .hidden { display: none; }
+
+/* ==========================================================================
+   7. NAVIGATION TABS & CRUD/AI GATEWAY DYNAMIC STYLES
+   ========================================================================== */
+.tab-navigation {
+  display: flex;
+  gap: 10px;
+  border-bottom: 2px solid #1f2833;
+  margin-bottom: 25px;
+  padding-bottom: 10px;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  color: #8892b0;
+  font-size: 13px;
+  font-weight: bold;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+  color: #66fcf1;
+  background: rgba(102, 252, 241, 0.05);
+}
+
+.active-tab {
+  color: #0b0c10 !important;
+  background: #66fcf1 !important;
+}
+
+.crud-input {
+  width: 100%;
+  height: 45px;
+  background: #1f2833;
+  color: #ffffff;
+  border: 1px solid #1f2833;
+  border-radius: 6px;
+  padding: 0 15px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.crud-input:focus {
+  border-color: #66fcf1;
+}
+
+.crud-table-container {
+  border: 1px solid #1f2833;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #0b0c10;
+  margin-top: 10px;
+}
+
+.crud-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+
+.crud-table th, .crud-table td {
+  padding: 12px 15px;
+  border-bottom: 1px solid #1f2833;
+}
+
+.crud-table th {
+  background: #151a22;
+  color: #66fcf1;
+  font-weight: bold;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.crud-table tr:hover {
+  background: rgba(102, 252, 241, 0.02);
+}
+
+.delete-row-btn {
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid #e74c3c;
+  color: #e74c3c;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.delete-row-btn:hover {
+  background: #e74c3c;
+  color: #ffffff;
+}
+
+/* Yellow warning styling for duplicates */
+.duplicate-card-bg {
+  background-color: rgba(241, 196, 15, 0.06) !important;
+  border-color: #f1c40f !important;
+}
+
+.duplicate-card-bg h3 {
+  color: #f1c40f;
+}
+
+.duplicate-text {
+  color: #f1c40f;
+}

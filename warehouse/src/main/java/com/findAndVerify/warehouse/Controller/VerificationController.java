@@ -8,7 +8,9 @@ import java.util.Optional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -122,6 +124,24 @@ public class VerificationController {
     @GetMapping("/trucks")
     public List<TruckInventory> getTrucks() {
         return truckInventoryRepo.findAll();
+    }
+
+    @PostMapping("/trucks")
+    public ResponseEntity<?> addTruck(@RequestBody TruckInventory newTruck) {
+        truckInventoryRepo.save(newTruck);
+        return ResponseEntity.ok(Map.of(
+            "status", "SUCCESS",
+            "message", "Truck " + newTruck.getTruckId() + " successfully registered in database."
+        ));
+    }
+
+    @DeleteMapping("/trucks/{truckId}")
+    public ResponseEntity<?> deleteTruck(@PathVariable String truckId) {
+        truckInventoryRepo.deleteById(truckId);
+        return ResponseEntity.ok(Map.of(
+            "status", "SUCCESS",
+            "message", "Truck " + truckId + " successfully removed from database."
+        ));
     }
 
     @PostMapping("/config/reset-manifest")

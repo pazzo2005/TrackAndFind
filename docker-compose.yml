@@ -49,6 +49,22 @@ services:
       - warehouse-network
     restart: always
 
+  # 5. AI DRIVEN DATA ACCESS GATEWAY SERVICE
+  ai-gateway:
+    build: ./AI-Driven-Data-Access-Gateway
+    container_name: warehouse-ai-gateway
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres-db
+    networks:
+      - warehouse-network
+    environment:
+      - OLLAMA_HOST=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: always
+
 networks:
   warehouse-network:
     driver: bridge
