@@ -222,10 +222,18 @@ public class VerificationController {
             if (dataSource instanceof HikariDataSource) {
                 HikariDataSource hikariDS = (HikariDataSource) dataSource;
                 
+                // Use reflection to unseal HikariConfig temporarily
+                java.lang.reflect.Field field = com.zaxxer.hikari.HikariConfig.class.getDeclaredField("isSealed");
+                field.setAccessible(true);
+                field.set(hikariDS, false);
+                
                 // Update credentials and JDBC URL dynamically
                 hikariDS.setJdbcUrl(dbUrl);
                 hikariDS.setUsername(username);
                 hikariDS.setPassword(password);
+                
+                // Reseal
+                field.set(hikariDS, true);
                 
                 if (hikariDS.getHikariPoolMXBean() != null) {
                     hikariDS.getHikariPoolMXBean().softEvictConnections();
