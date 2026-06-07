@@ -1,5 +1,5 @@
-// FIXED: Access the default instance or use a fallback for maximum compatibility across SDK versions
-const ollama = require('ollama').default || require('ollama');
+const { Ollama } = require('ollama');
+const ollama = new Ollama({ host: process.env.OLLAMA_HOST || 'http://host.docker.internal:11434' });
 const { getTableSchema } = require('./metadata');
 
 /**

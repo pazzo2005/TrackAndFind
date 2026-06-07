@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import AiGatewayTerminal from '../components/AiGateway/AiGatewayTerminal';
 
 export default function AdminConfigPage({ onArmScanner }) {
   const [activeTab, setActiveTab] = useState('config'); // config, master, aiGateway
@@ -22,11 +23,29 @@ export default function AdminConfigPage({ onArmScanner }) {
   const [crudMessage, setCrudMessage] = useState('');
   const [crudError, setCrudError] = useState(false);
 
-  // Tab 3: AI Gateway state
-  const [aiIntent, setAiIntent] = useState('');
-  const [aiResults, setAiResults] = useState(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState('');
+  // Tab 4: Database Config state
+  const [dbMode, setDbMode] = useState(() => {
+    return localStorage.getItem('db_mode') || 'local';
+  });
+  const [dbHost, setDbHost] = useState(() => {
+    return localStorage.getItem('db_host') || '';
+  });
+  const [dbName, setDbName] = useState(() => {
+    return localStorage.getItem('db_name') || '';
+  });
+  const [dbUser, setDbUser] = useState(() => {
+    return localStorage.getItem('db_user') || '';
+  });
+  const [dbPass, setDbPass] = useState(() => {
+    return localStorage.getItem('db_pass') || '';
+  });
+  const [dbPort, setDbPort] = useState(() => {
+    return localStorage.getItem('db_port') || '5432';
+  });
+  const [dbMessage, setDbMessage] = useState('');
+  const [dbIsError, setDbIsError] = useState(false);
+  const [dbLoading, setDbLoading] = useState(false);
+
 
   // Fetch all trucks
   const fetchTrucks = () => {
@@ -147,40 +166,60 @@ export default function AdminConfigPage({ onArmScanner }) {
     }
   };
 
-  // AI Gateway Action
-  const handleAiQuery = async (e) => {
+  const handleSaveDbConfig = async (e) => {
     e.preventDefault();
-    if (!aiIntent.trim()) return;
+    setDbLoading(true);
+    setDbMessage('Updating database connection engine...');
+    setDbIsError(false);
 
-    setAiLoading(true);
-    setAiError('');
-    setAiResults(null);
+    let targetUrl = '';
+    let targetUser = '';
+    let targetPass = '';
+
+    if (dbMode === 'local') {
+      targetUrl = 'jdbc:postgresql://postgres-db:5432/warehouse_ledger';
+      targetUser = 'warehouse_admin';
+      targetPass = 'supersecretpassword';
+    } else {
+      if (!dbHost.trim() || !dbName.trim() || !dbUser.trim() || !dbPass.trim()) {
+        setDbIsError(true);
+        setDbMessage('All cloud database fields are required.');
+        setDbLoading(false);
+        return;
+      }
+      targetUrl = `jdbc:postgresql://${dbHost.trim()}:${dbPort.trim()}/${dbName.trim()}?sslmode=require`;
+      targetUser = dbUser.trim();
+      targetPass = dbPass.trim();
+    }
 
     try {
-      const res = await axios.post('http://localhost:3000/api/v1/query', {
-        targetTable: ["loading_manifest", "archived_manifest", "truck_inventory", "bay_door_routing"],
-        intent: aiIntent.trim(),
-        clientDB: {
-          host: "postgres-db",
-          username: "warehouse_admin",
-          password: "supersecretpassword",
-          databaseName: "warehouse_ledger",
-          port: 5432
-        }
+      const response = await axios.post('http://localhost:8080/api/config/database', {
+        dbUrl: targetUrl,
+        username: targetUser,
+        password: targetPass
       });
 
-      if (res.data.success) {
-        setAiResults(res.data);
-      } else {
-        setAiError(res.data.error || 'Unknown query parsing failure.');
+      if (response.status === 200 || response.data.status === 'SUCCESS') {
+        localStorage.setItem('db_mode', dbMode);
+        localStorage.setItem('db_host', dbHost);
+        localStorage.setItem('db_name', dbName);
+        localStorage.setItem('db_user', dbUser);
+        localStorage.setItem('db_pass', dbPass);
+        localStorage.setItem('db_port', dbPort);
+
+        setDbIsError(false);
+        setDbMessage(`Success: Database pool switched to ${dbMode === 'local' ? 'Local' : 'Cloud'} database.`);
+        fetchTrucks();
       }
-    } catch (err) {
-      console.error(err);
-      setAiError(err.response?.data?.error || 'Security baseline check failed: Destructive or non-read action detected.');
+    } catch (error) {
+      console.error(error);
+      setDbIsError(true);
+      setDbMessage(error.response?.data?.message || 'Database connection test failed. Reverting changes.');
     } finally {
-      setAiLoading(false);
+      setDbLoading(false);
     }
   };
+
 
   return (
     <div className="card-container">
@@ -208,6 +247,13 @@ export default function AdminConfigPage({ onArmScanner }) {
             className={`tab-btn ${activeTab === 'aiGateway' ? 'active-tab' : ''}`}
           >
             AI Access Gateway
+          </button>
+          <button 
+            type="button" 
+            onClick={() => setActiveTab('dbConfig')} 
+            className={`tab-btn ${activeTab === 'dbConfig' ? 'active-tab' : ''}`}
+          >
+            Database Settings
           </button>
         </div>
 
@@ -349,72 +395,86 @@ export default function AdminConfigPage({ onArmScanner }) {
         )}
 
         {activeTab === 'aiGateway' && (
-          <div>
-            <h3>3. AI Data Access Gateway Terminal</h3>
-            <p className="card-desc">Interact with the database using natural language queries (Text-to-SQL + SQLGuard Firewall).</p>
+          <AiGatewayTerminal />
+        )}
 
-            <form onSubmit={handleAiQuery} className="ai-terminal-form" style={{ marginBottom: '20px' }}>
+        {activeTab === 'dbConfig' && (
+          <div>
+            <h3>4. Dynamic Database Settings</h3>
+            <p className="card-desc">Configure the active ledger storage engine (Local on-premise or Cloud database).</p>
+
+            <form onSubmit={handleSaveDbConfig}>
               <div className="form-group">
-                <label>Enter Operational Intent (Natural Language)</label>
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <input 
-                    type="text" 
-                    value={aiIntent} 
-                    onChange={(e) => setAiIntent(e.target.value)} 
-                    placeholder="e.g. Show all active trucks or get count of pending packages"
-                    className="crud-input"
-                    style={{ flex: 1 }}
-                  />
-                  <button type="submit" className="action-btn sync-btn" style={{ width: '120px' }} disabled={aiLoading}>
-                    {aiLoading ? 'Thinking...' : 'Compile'}
-                  </button>
-                </div>
+                <label>Database Storage Mode</label>
+                <select value={dbMode} onChange={(e) => setDbMode(e.target.value)}>
+                  <option value="local">On-Premise PostgreSQL (Local Container)</option>
+                  <option value="cloud">Cloud PostgreSQL (Neon / External Cloud DB)</option>
+                </select>
               </div>
+
+              {dbMode === 'cloud' && (
+                <div style={{ marginTop: '15px' }}>
+                  <div className="form-group">
+                    <label>Cloud Database Host</label>
+                    <input 
+                      type="text" 
+                      value={dbHost} 
+                      onChange={(e) => setDbHost(e.target.value)} 
+                      placeholder="e.g. ep-hidden-sky-aoutcfq1.aws.neon.tech" 
+                      className="crud-input"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Database Name</label>
+                    <input 
+                      type="text" 
+                      value={dbName} 
+                      onChange={(e) => setDbName(e.target.value)} 
+                      placeholder="e.g. neondb" 
+                      className="crud-input"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Database Username</label>
+                    <input 
+                      type="text" 
+                      value={dbUser} 
+                      onChange={(e) => setDbUser(e.target.value)} 
+                      placeholder="e.g. neondb_owner" 
+                      className="crud-input"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Database Password</label>
+                    <input 
+                      type="password" 
+                      value={dbPass} 
+                      onChange={(e) => setDbPass(e.target.value)} 
+                      placeholder="Enter password" 
+                      className="crud-input"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Database Port</label>
+                    <input 
+                      type="text" 
+                      value={dbPort} 
+                      onChange={(e) => setDbPort(e.target.value)} 
+                      placeholder="5432" 
+                      className="crud-input"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button type="submit" className="action-btn sync-btn" style={{ marginTop: '15px' }} disabled={dbLoading}>
+                {dbLoading ? 'Connecting...' : 'Apply Configuration'}
+              </button>
             </form>
 
-            {aiError && (
-              <div className="status-toast error-text" style={{ padding: '10px', background: 'rgba(231, 76, 60, 0.05)', borderRadius: '6px', textAlign: 'left', fontSize: '12px', lineHeight: '18px' }}>
-                {aiError}
-              </div>
-            )}
-
-            {aiResults && (
-              <div className="ai-response-panel">
-                <div className="sql-box" style={{ background: '#0b0c10', border: '1px solid #1f2833', padding: '12px', borderRadius: '6px', marginBottom: '20px' }}>
-                  <label style={{ fontSize: '9px', color: '#66fcf1' }}>COMPILED SQL (SQLGUARD APPROVED)</label>
-                  <code style={{ color: '#2ecc71', fontSize: '13px', fontFamily: 'monospace', display: 'block', wordBreak: 'break-all', marginTop: '5px' }}>
-                    {aiResults.compiledQuery}
-                  </code>
-                </div>
-
-                <label style={{ color: '#66fcf1', fontSize: '10px' }}>
-                  EXTRACTED RECORDS ({aiResults.recordsCount})
-                </label>
-                
-                {aiResults.data && aiResults.data.length > 0 ? (
-                  <div className="crud-table-container" style={{ maxHeight: '250px', overflowY: 'auto', marginTop: '10px' }}>
-                    <table className="crud-table">
-                      <thead>
-                        <tr>
-                          {Object.keys(aiResults.data[0]).map(key => (
-                            <th key={key}>{key.toUpperCase()}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {aiResults.data.map((row, idx) => (
-                          <tr key={idx}>
-                            {Object.values(row).map((val, colIdx) => (
-                              <td key={colIdx}>{val === null ? 'NULL' : val.toString()}</td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p style={{ color: '#8892b0', fontSize: '12px', marginTop: '10px' }}>No records returned by query.</p>
-                )}
+            {dbMessage && (
+              <div className={`status-toast ${dbIsError ? 'error-text' : 'success-text'}`} style={{ marginTop: '15px' }}>
+                {dbMessage}
               </div>
             )}
           </div>

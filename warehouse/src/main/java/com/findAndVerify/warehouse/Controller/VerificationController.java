@@ -26,6 +26,8 @@ import com.findAndVerify.warehouse.Repository.BayDoorRoutingRepo;
 import com.findAndVerify.warehouse.Repository.ManifestRepo;
 import com.findAndVerify.warehouse.Repository.TruckInventoryRepo;
 import com.findAndVerify.warehouse.Service.ManifestService;
+import com.zaxxer.hikari.HikariDataSource;
+import javax.sql.DataSource;
 
 @RestController
 @RequestMapping("/api")
@@ -45,6 +47,9 @@ public class VerificationController {
 
     @Autowired
     private ManifestService manifestService;
+
+    @Autowired
+    private DataSource dataSource;
 
     @PutMapping("/config/assign-truck")
     public ResponseEntity<?> assignTruckToBay(@RequestBody Map<String, String> payload) {
@@ -198,5 +203,143 @@ public class VerificationController {
             "status", "SUCCESS",
             "message", "Dispatched packages archived successfully. Active manifest reset for re-testing."
         ));
+    }
+
+    @PostMapping("/config/database")
+    public ResponseEntity<?> configureDatabase(@RequestBody Map<String, String> payload) {
+        String dbUrl = payload.get("dbUrl");
+        String username = payload.get("username");
+        String password = payload.get("password");
+
+        if (dbUrl == null || username == null || password == null) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "status", "ERROR",
+                "message", "Missing database configuration parameters (dbUrl, username, password)"
+            ));
+        }
+
+        try {
+            if (dataSource instanceof HikariDataSource) {
+                HikariDataSource hikariDS = (HikariDataSource) dataSource;
+                
+                // Update credentials and JDBC URL dynamically
+                hikariDS.setJdbcUrl(dbUrl);
+                hikariDS.setUsername(username);
+                hikariDS.setPassword(password);
+                
+                if (hikariDS.getHikariPoolMXBean() != null) {
+                    hikariDS.getHikariPoolMXBean().softEvictConnections();
+                }
+                
+                System.out.println("[DATABASE CONFIGURATION UPDATED] Re-routed database pool to: " + dbUrl);
+                return ResponseEntity.ok(Map.of(
+                    "status", "SUCCESS",
+                    "message", "Database configuration dynamically updated. Connections successfully re-routed."
+                ));
+            } else {
+                return ResponseEntity.internalServerError().body(Map.of(
+                    "status", "ERROR",
+                    "message", "DataSource is not an instance of HikariDataSource. Cannot update dynamically."
+                ));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of(
+                "status", "ERROR",
+                "message", "Failed to update database configuration: " + e.getMessage()
+            ));
+        }
+    }
+
+    @GetMapping("/config/database")
+    public ResponseEntity<?> getDatabaseConfig() {
+        try {
+            if (dataSource instanceof HikariDataSource) {
+                HikariDataSource hikariDS = (HikariDataSource) dataSource;
+                String jdbcUrl = hikariDS.getJdbcUrl();
+                String username = hikariDS.getUsername();
+                
+                String host = "postgres-db";
+                int port = 5432;
+                String databaseName = "warehouse_ledger";
+                
+                if (jdbcUrl != null && jdbcUrl.startsWith("jdbc:postgresql://")) {
+                    String cleanUrl = jdbcUrl.substring("jdbc:postgresql://".length());
+                    int slashIndex = cleanUrl.indexOf("/");
+                    if (slashIndex != -1) {
+                        String hostPort = cleanUrl.substring(0, slashIndex);
+                        databaseName = cleanUrl.substring(slashIndex + 1);
+                        int questionIndex = databaseName.indexOf("?");
+                        if (questionIndex != -1) {
+                            databaseName = databaseName.substring(0, questionIndex);
+                        }
+                        
+                        int colonIndex = hostPort.indexOf(":");
+                        if (colonIndex != -1) {
+                            host = hostPort.substring(0, colonIndex);
+                            port = Integer.parseInt(hostPort.substring(colonIndex + 1));
+                        } else {
+                            host = hostPort;
+                        }
+                    }
+                }
+                
+                return ResponseEntity.ok(Map.of(
+                    "status", "SUCCESS",
+                    "host", host,
+                    "port", port,
+                    "databaseName", databaseName,
+                    "username", username,
+                    "password", hikariDS.getPassword() != null ? hikariDS.getPassword() : "",
+                    "isCloud", !host.equals("postgres-db")
+                ));
+            }
+            return ResponseEntity.internalServerError().body(Map.of("status", "ERROR", "message", "Unsupported DataSource"));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("status", "ERROR", "message", e.getMessage()));
+        }
+    }
+
+    // Dynamic Data Tiering Scheduler: Runs every hour and archives packages older than 10 days
+    @org.springframework.scheduling.annotation.Scheduled(cron = "0 0 * * * ?")
+    public void runAutoArchiving() {
+        System.out.println("[SCHEDULER RUNNING] Scanning for dispatched packages older than 10 days...");
+        performArchiving(14400); // 10 days in minutes
+    }
+
+    @PostMapping("/config/archive")
+    public ResponseEntity<?> triggerManualArchive(@org.springframework.web.bind.annotation.RequestParam(defaultValue = "14400") int thresholdMinutes) {
+        int count = performArchiving(thresholdMinutes);
+        return ResponseEntity.ok(Map.of(
+            "status", "SUCCESS",
+            "message", "Successfully archived " + count + " dispatched packages older than " + thresholdMinutes + " minutes."
+        ));
+    }
+
+    private int performArchiving(int thresholdMinutes) {
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(thresholdMinutes);
+        List<loadingEntity> allPackages = manifestRepo.findAll();
+        int archiveCount = 0;
+
+        for (loadingEntity pkg : allPackages) {
+            if ("DISPATCHED".equals(pkg.getCurrentStatus()) && pkg.getDispatchedAt() != null) {
+                if (pkg.getDispatchedAt().isBefore(cutoff)) {
+                    archivedEntity archived = new archivedEntity(
+                        pkg.getPackageId(),
+                        pkg.getExpectedTruckId(),
+                        pkg.getCurrentStatus(),
+                        pkg.getDispatchedAt(),
+                        pkg.getWorkerNotes()
+                    );
+                    archivedManifestRepo.save(archived);
+                    manifestRepo.delete(pkg);
+                    manifestService.evictPackage(pkg.getPackageId());
+                    archiveCount++;
+                }
+            }
+        }
+        if (archiveCount > 0) {
+            System.out.println("[DATA TIERING COMPLETED] Moved " + archiveCount + " cold packages to archived manifest ledger.");
+        }
+        return archiveCount;
     }
 }

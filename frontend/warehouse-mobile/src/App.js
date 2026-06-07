@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   StyleSheet, 
   Text, 
@@ -8,14 +8,18 @@ import {
   ScrollView, 
   ActivityIndicator,
   SafeAreaView,
-  StatusBar
+  StatusBar,
+  Dimensions
 } from 'react-native';
+
+const { width: screenWidth } = Dimensions.get('window');
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Picker } from '@react-native-picker/picker';
 import axios from 'axios';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('config'); // config, scanner, ai
+  const scrollViewRef = useRef(null);
   const [laptopIp, setLaptopIp] = useState('192.168.1.100'); // Change to your local machine IP
   const [isIpLocked, setIsIpLocked] = useState(false);
 
@@ -39,6 +43,37 @@ export default function App() {
   const [aiResults, setAiResults] = useState(null);
   const [aiError, setAiError] = useState('');
 
+  // Active database state dynamically synced from backend
+  const [dbHost, setDbHost] = useState('postgres-db');
+  const [dbUser, setDbUser] = useState('warehouse_admin');
+  const [dbPass, setDbPass] = useState('supersecretpassword');
+  const [dbName, setDbName] = useState('warehouse_ledger');
+  const [dbPort, setDbPort] = useState(5432);
+
+  const navigateToTab = (tabName) => {
+    setActiveTab(tabName);
+    const index = tabName === 'config' ? 0 : tabName === 'scanner' ? 1 : 2;
+    scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
+    
+    // Stop camera if navigating away from scanner
+    if (tabName !== 'scanner') {
+      setScannerActive(false);
+    }
+  };
+
+  const handleScrollEnd = (e) => {
+    const contentOffset = e.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffset / screenWidth);
+    const tabs = ['config', 'scanner', 'ai'];
+    const tabName = tabs[index];
+    setActiveTab(tabName);
+    
+    // Stop camera if swiped away from scanner
+    if (tabName !== 'scanner') {
+      setScannerActive(false);
+    }
+  };
+
   // Fetch Trucks from Spring Boot
   const fetchTrucksList = async () => {
     try {
@@ -47,6 +82,21 @@ export default function App() {
       if (res.data && res.data.length > 0) {
         setSelectedTruck(res.data[0].truckId);
       }
+
+      // Sync active database settings from backend dynamically
+      try {
+        const dbRes = await axios.get(`http://${laptopIp}:8080/api/config/database`, { timeout: 3000 });
+        if (dbRes.data.status === 'SUCCESS') {
+          setDbHost(dbRes.data.host);
+          setDbUser(dbRes.data.username);
+          setDbPass(dbRes.data.password);
+          setDbName(dbRes.data.databaseName);
+          setDbPort(dbRes.data.port);
+        }
+      } catch (dbErr) {
+        console.warn("Failed to synchronize active database configuration metadata:", dbErr);
+      }
+
       setConfigMessage('Logistics database connected.');
       setConfigSuccess(true);
     } catch (err) {
@@ -121,11 +171,11 @@ export default function App() {
         targetTable: ["loading_manifest", "archived_manifest", "truck_inventory", "bay_door_routing"],
         intent: aiPrompt.trim(),
         clientDB: {
-          host: "postgres-db",
-          username: "warehouse_admin",
-          password: "supersecretpassword",
-          databaseName: "warehouse_ledger",
-          port: 5432
+          host: dbHost,
+          username: dbUser,
+          password: dbPass,
+          databaseName: dbName,
+          port: dbPort
         }
       });
 
@@ -187,185 +237,197 @@ export default function App() {
         <View style={{ flex: 1 }}>
           
           {/* Main Body Tabs */}
-          {activeTab === 'config' && (
-            <ScrollView contentContainerStyle={styles.tabContent}>
-              <Text style={styles.sectionTitle}>1. Gate Provisioning</Text>
-              <Text style={styles.descText}>Select terminal loading bay door and assign arriving carrier.</Text>
+          <ScrollView
+            ref={scrollViewRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onMomentumScrollEnd={handleScrollEnd}
+            style={{ flex: 1 }}
+          >
+            {/* TAB 1: Config */}
+            <View style={{ width: screenWidth }}>
+              <ScrollView contentContainerStyle={styles.tabContent}>
+                <Text style={styles.sectionTitle}>1. Gate Provisioning</Text>
+                <Text style={styles.descText}>Select terminal loading bay door and assign arriving carrier.</Text>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Select Loading Bay</Text>
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    selectedValue={selectedBay}
-                    style={styles.picker}
-                    onValueChange={(itemValue) => setSelectedBay(itemValue)}
-                    dropdownIconColor="#66fcf1"
-                  >
-                    <option label="Bay Door 1" value="BAY_DOOR_01" />
-                    <option label="Bay Door 2" value="BAY_DOOR_02" />
-                    <option label="Bay Door 3" value="BAY_DOOR_03" />
-                  </Picker>
-                </View>
-              </View>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Assign Docked Truck</Text>
-                <View style={styles.pickerWrapper}>
-                  <Picker
-                    selectedValue={selectedTruck}
-                    style={styles.picker}
-                    onValueChange={(itemValue) => setSelectedTruck(itemValue)}
-                    dropdownIconColor="#66fcf1"
-                  >
-                    {trucks.map(t => (
-                      <option key={t.truckId} label={`${t.truckId} (${t.driverName})`} value={t.truckId} />
-                    ))}
-                  </Picker>
-                </View>
-              </View>
-
-              <TouchableOpacity style={styles.btnAction} onPress={handleAssignMapping}>
-                <Text style={styles.btnText}>Lock Gate Route Mapping</Text>
-              </TouchableOpacity>
-
-              {configMessage ? (
-                <Text style={[styles.messageText, configSuccess ? styles.textSuccess : styles.textError]}>
-                  {configMessage}
-                </Text>
-              ) : null}
-            </ScrollView>
-          )}
-
-          {activeTab === 'scanner' && (
-            <View style={styles.tabContentFull}>
-              <Text style={styles.sectionTitle}>2. Live Scanner Terminal</Text>
-              <Text style={styles.descText}>Active Bay: <Text style={{ color: '#66fcf1', fontWeight: 'bold' }}>{selectedBay}</Text></Text>
-
-              {scannerActive ? (
-                <View style={styles.cameraContainer}>
-                  <CameraView
-                    style={StyleSheet.absoluteFillObject}
-                    onBarcodeScanned={handleBarcodeScanned}
-                  />
-                  <View style={styles.scannerReticle} />
-                </View>
-              ) : (
-                <View style={[styles.statusPanel, getStatusStyle()]}>
-                  <Text style={styles.statusTitle}>
-                    {scanStatus === 'PROCESSING' ? 'CHECKING...' : scanStatus}
-                  </Text>
-                  <Text style={styles.statusMessage}>{scanMessage}</Text>
-                  {scannedId ? (
-                    <Text style={styles.scannedIdText}>Last Package Scanned: {scannedId}</Text>
-                  ) : null}
-                </View>
-              )}
-
-              <TouchableOpacity 
-                style={[styles.btnAction, scannerActive ? styles.btnStop : styles.btnStart]} 
-                onPress={() => {
-                  if (!permission || !permission.granted) {
-                    requestPermission();
-                  } else {
-                    setScannerActive(!scannerActive);
-                    setScanStatus('IDLE');
-                    setScanMessage('Armed. Align QR code in camera view.');
-                  }
-                }}
-              >
-                <Text style={styles.btnText}>{scannerActive ? 'Stop Scanner' : 'Arm Camera Scanner'}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {activeTab === 'ai' && (
-            <ScrollView contentContainerStyle={styles.tabContent}>
-              <Text style={styles.sectionTitle}>3. AI Data Access Gateway</Text>
-              <Text style={styles.descText}>Query the database ledger using plain language.</Text>
-
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Ask Database (Ollama/Gemma)</Text>
-                <TextInput
-                  style={styles.aiInput}
-                  value={aiPrompt}
-                  onChangeText={setAiPrompt}
-                  placeholder="e.g. Show all active trucks or get pending packages"
-                  placeholderTextColor="#8892b0"
-                  multiline
-                />
-              </View>
-
-              <TouchableOpacity style={styles.btnAction} onPress={handleAiQuery} disabled={aiLoading}>
-                {aiLoading ? (
-                  <ActivityIndicator color="#0b0c10" />
-                ) : (
-                  <Text style={styles.btnText}>Compile AI Intent Query</Text>
-                )}
-              </TouchableOpacity>
-
-              {aiError ? (
-                <View style={styles.aiErrorBox}>
-                  <Text style={styles.textError}>{aiError}</Text>
-                </View>
-              ) : null}
-
-              {aiResults ? (
-                <View style={styles.aiResultsContainer}>
-                  <View style={styles.sqlBox}>
-                    <Text style={styles.sqlBoxLabel}>COMPILED SQL (SQLGUARD ENFORCED)</Text>
-                    <Text style={styles.sqlBoxQuery}>{aiResults.compiledQuery}</Text>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Select Loading Bay</Text>
+                  <View style={styles.pickerWrapper}>
+                    <Picker
+                      selectedValue={selectedBay}
+                      style={styles.picker}
+                      onValueChange={(itemValue) => setSelectedBay(itemValue)}
+                      dropdownIconColor="#66fcf1"
+                    >
+                      <Picker.Item label="Bay Door 1" value="BAY_DOOR_01" />
+                      <Picker.Item label="Bay Door 2" value="BAY_DOOR_02" />
+                      <Picker.Item label="Bay Door 3" value="BAY_DOOR_03" />
+                    </Picker>
                   </View>
+                </View>
 
-                  <Text style={styles.resultsLabel}>RESULTS ({aiResults.recordsCount})</Text>
-                  
-                  {aiResults.data && aiResults.data.length > 0 ? (
-                    <ScrollView horizontal>
-                      <View>
-                        {/* Table Header */}
-                        <View style={styles.tableHeaderRow}>
-                          {Object.keys(aiResults.data[0]).map(key => (
-                            <Text key={key} style={styles.tableHeaderCell}>{key.toUpperCase()}</Text>
-                          ))}
-                        </View>
-                        {/* Table Rows */}
-                        {aiResults.data.map((row, idx) => (
-                          <View key={idx} style={styles.tableBodyRow}>
-                            {Object.values(row).map((val, colIdx) => (
-                              <Text key={colIdx} style={styles.tableBodyCell}>
-                                {val === null ? 'NULL' : val.toString()}
-                              </Text>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Assign Docked Truck</Text>
+                  <View style={styles.pickerWrapper}>
+                    <Picker
+                      selectedValue={selectedTruck}
+                      style={styles.picker}
+                      onValueChange={(itemValue) => setSelectedTruck(itemValue)}
+                      dropdownIconColor="#66fcf1"
+                    >
+                      {trucks.map(t => (
+                        <Picker.Item key={t.truckId} label={`${t.truckId} (${t.driverName})`} value={t.truckId} />
+                      ))}
+                    </Picker>
+                  </View>
+                </View>
+
+                <TouchableOpacity style={styles.btnAction} onPress={handleAssignMapping}>
+                  <Text style={styles.btnText}>Lock Gate Route Mapping</Text>
+                </TouchableOpacity>
+
+                {configMessage ? (
+                  <Text style={[styles.messageText, configSuccess ? styles.textSuccess : styles.textError]}>
+                    {configMessage}
+                  </Text>
+                ) : null}
+              </ScrollView>
+            </View>
+
+            {/* TAB 2: Scanner */}
+            <View style={{ width: screenWidth, flex: 1 }}>
+              <View style={styles.tabContentFull}>
+                <Text style={styles.sectionTitle}>2. Live Scanner Terminal</Text>
+                <Text style={styles.descText}>Active Bay: <Text style={{ color: '#66fcf1', fontWeight: 'bold' }}>{selectedBay}</Text></Text>
+
+                {scannerActive ? (
+                  <View style={styles.cameraContainer}>
+                    <CameraView
+                      style={StyleSheet.absoluteFillObject}
+                      onBarcodeScanned={handleBarcodeScanned}
+                    />
+                    <View style={styles.scannerReticle} />
+                  </View>
+                ) : (
+                  <View style={[styles.statusPanel, getStatusStyle()]}>
+                    <Text style={styles.statusTitle}>
+                      {scanStatus === 'PROCESSING' ? 'CHECKING...' : scanStatus}
+                    </Text>
+                    <Text style={styles.statusMessage}>{scanMessage}</Text>
+                    {scannedId ? (
+                      <Text style={styles.scannedIdText}>Last Package Scanned: {scannedId}</Text>
+                    ) : null}
+                  </View>
+                )}
+
+                <TouchableOpacity 
+                  style={[styles.btnAction, scannerActive ? styles.btnStop : styles.btnStart]} 
+                  onPress={() => {
+                    if (!permission || !permission.granted) {
+                      requestPermission();
+                    } else {
+                      setScannerActive(!scannerActive);
+                      setScanStatus('IDLE');
+                      setScanMessage('Armed. Align QR code in camera view.');
+                    }
+                  }}
+                >
+                  <Text style={styles.btnText}>{scannerActive ? 'Stop Scanner' : 'Arm Camera Scanner'}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* TAB 3: AI Gateway */}
+            <View style={{ width: screenWidth }}>
+              <ScrollView contentContainerStyle={styles.tabContent}>
+                <Text style={styles.sectionTitle}>3. AI Data Access Gateway</Text>
+                <Text style={styles.descText}>Query the database ledger using plain language.</Text>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Ask Database (Ollama/Gemma)</Text>
+                  <TextInput
+                    style={styles.aiInput}
+                    value={aiPrompt}
+                    onChangeText={setAiPrompt}
+                    placeholder="e.g. Show all active trucks or get pending packages"
+                    placeholderTextColor="#8892b0"
+                    multiline
+                  />
+                </View>
+
+                <TouchableOpacity style={styles.btnAction} onPress={handleAiQuery} disabled={aiLoading}>
+                  {aiLoading ? (
+                    <ActivityIndicator color="#0b0c10" />
+                  ) : (
+                    <Text style={styles.btnText}>Compile AI Intent Query</Text>
+                  )}
+                </TouchableOpacity>
+
+                {aiError ? (
+                  <View style={styles.aiErrorBox}>
+                    <Text style={styles.textError}>{aiError}</Text>
+                  </View>
+                ) : null}
+
+                {aiResults ? (
+                  <View style={styles.aiResultsContainer}>
+                    <View style={styles.sqlBox}>
+                      <Text style={styles.sqlBoxLabel}>COMPILED SQL (SQLGUARD ENFORCED)</Text>
+                      <Text style={styles.sqlBoxQuery}>{aiResults.compiledQuery}</Text>
+                    </View>
+
+                    <Text style={styles.resultsLabel}>RESULTS ({aiResults.recordsCount})</Text>
+                    
+                    {aiResults.data && aiResults.data.length > 0 ? (
+                      <ScrollView horizontal>
+                        <View>
+                          {/* Table Header */}
+                          <View style={styles.tableHeaderRow}>
+                            {Object.keys(aiResults.data[0]).map(key => (
+                              <Text key={key} style={styles.tableHeaderCell}>{key.toUpperCase()}</Text>
                             ))}
                           </View>
-                        ))}
-                      </View>
-                    </ScrollView>
-                  ) : (
-                    <Text style={styles.noResultsText}>No records returned.</Text>
-                  )}
-                </View>
-              ) : null}
-            </ScrollView>
-          )}
+                          {/* Table Rows */}
+                          {aiResults.data.map((row, idx) => (
+                            <View key={idx} style={styles.tableBodyRow}>
+                              {Object.values(row).map((val, colIdx) => (
+                                <Text key={colIdx} style={styles.tableBodyCell}>
+                                  {val === null ? 'NULL' : val.toString()}
+                                </Text>
+                              ))}
+                            </View>
+                          ))}
+                        </View>
+                      </ScrollView>
+                    ) : (
+                      <Text style={styles.noResultsText}>No records returned.</Text>
+                    )}
+                  </View>
+                ) : null}
+              </ScrollView>
+            </View>
+          </ScrollView>
 
           {/* Bottom Tabs Bar */}
           <View style={styles.tabBar}>
             <TouchableOpacity 
               style={[styles.tabItem, activeTab === 'config' ? styles.tabItemActive : null]}
-              onPress={() => setActiveTab('config')}
+              onPress={() => navigateToTab('config')}
             >
               <Text style={[styles.tabText, activeTab === 'config' ? styles.tabTextActive : null]}>Config</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
               style={[styles.tabItem, activeTab === 'scanner' ? styles.tabItemActive : null]}
-              onPress={() => setActiveTab('scanner')}
+              onPress={() => navigateToTab('scanner')}
             >
               <Text style={[styles.tabText, activeTab === 'scanner' ? styles.tabTextActive : null]}>Scanner</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
               style={[styles.tabItem, activeTab === 'ai' ? styles.tabItemActive : null]}
-              onPress={() => setActiveTab('ai')}
+              onPress={() => navigateToTab('ai')}
             >
               <Text style={[styles.tabText, activeTab === 'ai' ? styles.tabTextActive : null]}>AI Gateway</Text>
             </TouchableOpacity>
