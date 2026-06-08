@@ -6,6 +6,7 @@ const { Pool } = require('pg');
  * @returns {Promise<Object[]>}
  */
 async function executeSafeQuery(safeSQL, cleintDB) {
+    const isLocal = cleintDB.host === 'postgres-db' || cleintDB.host === 'localhost' || cleintDB.host === '127.0.0.1';
     const dynamoPool = new Pool({
         host: cleintDB.host,
         user: cleintDB.username,
@@ -13,7 +14,8 @@ async function executeSafeQuery(safeSQL, cleintDB) {
         database: cleintDB.databaseName, // FIXED: Added database parsing parameter name explicitly
         port: cleintDB.port || 5432,
         max: 1,
-        idleTimeoutMillis: 2000
+        idleTimeoutMillis: 2000,
+        ssl: isLocal ? false : { rejectUnauthorized: false }
     });
 
     const client = await dynamoPool.connect();

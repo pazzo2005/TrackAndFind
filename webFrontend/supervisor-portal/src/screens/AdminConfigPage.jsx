@@ -7,7 +7,7 @@ export default function AdminConfigPage({ onArmScanner }) {
   
   // Tab 1: Configuration Mapping state
   const [selectedBay, setSelectedBay] = useState(() => {
-    return localStorage.getItem('selectedBay') || 'BAY_DOOR_01';
+    return localStorage.getItem('selectedBay') || '';
   });
   const [selectedTruck, setSelectedTruck] = useState(() => {
     return localStorage.getItem('selectedTruck') || '';
@@ -22,6 +22,8 @@ export default function AdminConfigPage({ onArmScanner }) {
   const [newDestination, setNewDestination] = useState('');
   const [crudMessage, setCrudMessage] = useState('');
   const [crudError, setCrudError] = useState(false);
+  const [bays, setBays] = useState([]);
+  const [newBayId, setNewBayId] = useState('');
 
   // Tab 4: Database Config state
   const [dbMode, setDbMode] = useState(() => {
@@ -63,8 +65,26 @@ export default function AdminConfigPage({ onArmScanner }) {
       .catch(err => console.error("Error fetching trucks:", err));
   };
 
+  const fetchBays = () => {
+    axios.get("http://localhost:8080/api/bays")
+      .then(res => {
+        setBays(res.data);
+        const storedBay = localStorage.getItem('selectedBay');
+        if (storedBay && res.data.some(b => b.bayDoorId === storedBay)) {
+          setSelectedBay(storedBay);
+        } else if (res.data && res.data.length > 0) {
+          setSelectedBay(res.data[0].bayDoorId);
+          localStorage.setItem('selectedBay', res.data[0].bayDoorId);
+        } else {
+          setSelectedBay('');
+        }
+      })
+      .catch(err => console.error("Error fetching bays:", err));
+  };
+
   useEffect(() => {
     fetchTrucks();
+    fetchBays();
   }, []);
 
   const API_URL = 'http://localhost:8080/api/config/assign-truck';
@@ -166,6 +186,53 @@ export default function AdminConfigPage({ onArmScanner }) {
     }
   };
 
+  const handleAddBay = async (e) => {
+    e.preventDefault();
+    if (!newBayId.trim()) {
+      setCrudError(true);
+      setCrudMessage('Bay Door ID is required.');
+      return;
+    }
+
+    setCrudMessage('Registering new Loading Bay Terminal...');
+    setCrudError(false);
+
+    try {
+      const res = await axios.post('http://localhost:8080/api/bays', {
+        bayDoorId: newBayId.trim().toUpperCase()
+      });
+
+      if (res.status === 200 || res.data.status === 'SUCCESS') {
+        setCrudError(false);
+        setCrudMessage(`Success: registered ${newBayId.trim().toUpperCase()} to database.`);
+        setNewBayId('');
+        fetchBays(); // refresh list
+      }
+    } catch (err) {
+      console.error(err);
+      setCrudError(true);
+      setCrudMessage('Error registering bay door: check database connection or duplicate keys.');
+    }
+  };
+
+  const handleDeleteBay = async (bayId) => {
+    setCrudMessage(`Deregistering loading bay ${bayId}...`);
+    setCrudError(false);
+
+    try {
+      const res = await axios.delete(`http://localhost:8080/api/bays/${bayId}`);
+      if (res.status === 200 || res.data.status === 'SUCCESS') {
+        setCrudError(false);
+        setCrudMessage(`Success: removed ${bayId} from database.`);
+        fetchBays(); // refresh list
+      }
+    } catch (err) {
+      console.error(err);
+      setCrudError(true);
+      setCrudMessage('Error deleting bay: database connection error.');
+    }
+  };
+
   const handleSaveDbConfig = async (e) => {
     e.preventDefault();
     setDbLoading(true);
@@ -200,12 +267,12 @@ export default function AdminConfigPage({ onArmScanner }) {
       });
 
       if (response.status === 200 || response.data.status === 'SUCCESS') {
-        localStorage.setItem('db_mode', dbMode);
-        localStorage.setItem('db_host', dbHost);
-        localStorage.setItem('db_name', dbName);
-        localStorage.setItem('db_user', dbUser);
-        localStorage.setItem('db_pass', dbPass);
-        localStorage.setItem('db_port', dbPort);
+        localStorage.setItem('db_mode', dbMode.trim());
+        localStorage.setItem('db_host', dbHost.trim());
+        localStorage.setItem('db_name', dbName.trim());
+        localStorage.setItem('db_user', dbUser.trim());
+        localStorage.setItem('db_pass', dbPass.trim());
+        localStorage.setItem('db_port', dbPort.trim());
 
         setDbIsError(false);
         setDbMessage(`Success: Database pool switched to ${dbMode === 'local' ? 'Local' : 'Cloud'} database.`);
@@ -223,7 +290,7 @@ export default function AdminConfigPage({ onArmScanner }) {
 
   return (
     <div className="card-container">
-      <div className={`dashboard-card ${activeTab === 'aiGateway' ? 'wide-card' : ''}`}>
+      <div className={`dashboard-card ${activeTab === 'aiGateway' || activeTab === 'master' ? 'wide-card' : ''}`}>
         
         {/* Navigation Tabs */}
         <div className="tab-navigation">
@@ -270,9 +337,15 @@ export default function AdminConfigPage({ onArmScanner }) {
                   setSelectedBay(val);
                   localStorage.setItem('selectedBay', val);
                 }}>
-                  <option value="BAY_DOOR_01">Loading Bay Door 1 (Gate 1)</option>
-                  <option value="BAY_DOOR_02">Loading Bay Door 2 (Gate 2)</option>
-                  <option value="BAY_DOOR_03">Loading Bay Door 3 (Gate 3)</option>
+                  {bays.length === 0 ? (
+                    <option value="">-- No Bays Available --</option>
+                  ) : (
+                    bays.map(b => (
+                      <option key={b.bayDoorId} value={b.bayDoorId}>
+                        {b.bayDoorId} {b.activeTruckId ? `(Hosting ${b.activeTruckId})` : '(Idle)'}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
 
@@ -313,84 +386,142 @@ export default function AdminConfigPage({ onArmScanner }) {
         {activeTab === 'master' && (
           <div>
             <h3>2. Master Data Management</h3>
-            <p className="card-desc">Add or remove active transport fleet registrations.</p>
+            <p className="card-desc">Add or remove active transport fleet registrations and loading bays.</p>
             
-            <form onSubmit={handleAddTruck} className="crud-form" style={{ marginBottom: '25px' }}>
-              <div className="form-group">
-                <label>Truck Serial ID</label>
-                <input 
-                  type="text" 
-                  value={newTruckId} 
-                  onChange={(e) => setNewTruckId(e.target.value)} 
-                  placeholder="e.g. TRUCK_D" 
-                  className="crud-input"
-                />
-              </div>
-              <div className="form-group">
-                <label>Driver Full Name</label>
-                <input 
-                  type="text" 
-                  value={newDriverName} 
-                  onChange={(e) => setNewDriverName(e.target.value)} 
-                  placeholder="e.g. Sunil Kumar"
-                  className="crud-input"
-                />
-              </div>
-              <div className="form-group">
-                <label>Destination City</label>
-                <input 
-                  type="text" 
-                  value={newDestination} 
-                  onChange={(e) => setNewDestination(e.target.value)} 
-                  placeholder="e.g. Mumbai"
-                  className="crud-input"
-                />
+            <div className="crud-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px', marginTop: '20px' }}>
+              
+              {/* Fleet Column */}
+              <div>
+                <h4 style={{ color: '#66fcf1', borderBottom: '1px solid #1f2833', paddingBottom: '8px', marginBottom: '15px', marginTop: 0 }}>Fleet Manager</h4>
+                <form onSubmit={handleAddTruck} className="crud-form" style={{ marginBottom: '20px' }}>
+                  <div className="form-group">
+                    <label>Truck Serial ID</label>
+                    <input 
+                      type="text" 
+                      value={newTruckId} 
+                      onChange={(e) => setNewTruckId(e.target.value)} 
+                      placeholder="e.g. TRUCK_D" 
+                      className="crud-input"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Driver Full Name</label>
+                    <input 
+                      type="text" 
+                      value={newDriverName} 
+                      onChange={(e) => setNewDriverName(e.target.value)} 
+                      placeholder="e.g. Sunil Kumar"
+                      className="crud-input"
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Destination City</label>
+                    <input 
+                      type="text" 
+                      value={newDestination} 
+                      onChange={(e) => setNewDestination(e.target.value)} 
+                      placeholder="e.g. Mumbai"
+                      className="crud-input"
+                    />
+                  </div>
+                  <button type="submit" className="action-btn sync-btn" style={{ height: '40px' }}>
+                    Register Truck
+                  </button>
+                </form>
+
+                <div className="master-data-list">
+                  <label>Current Trucks</label>
+                  <div className="crud-table-container">
+                    <table className="crud-table">
+                      <thead>
+                        <tr>
+                          <th>Truck ID</th>
+                          <th>Driver</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {truck.map(t => (
+                          <tr key={t.truckId}>
+                            <td>{t.truckId}</td>
+                            <td>{t.driverName}</td>
+                            <td>
+                              <button 
+                                type="button" 
+                                onClick={() => handleDeleteTruck(t.truckId)} 
+                                className="delete-row-btn"
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
 
-              <button type="submit" className="action-btn sync-btn">
-                Register Logistics Engine
-              </button>
-            </form>
+              {/* Bays Column */}
+              <div>
+                <h4 style={{ color: '#66fcf1', borderBottom: '1px solid #1f2833', paddingBottom: '8px', marginBottom: '15px', marginTop: 0 }}>Loading Bay Manager</h4>
+                <form onSubmit={handleAddBay} className="crud-form" style={{ marginBottom: '20px' }}>
+                  <div className="form-group">
+                    <label>Bay Door Terminal ID</label>
+                    <input 
+                      type="text" 
+                      value={newBayId} 
+                      onChange={(e) => setNewBayId(e.target.value)} 
+                      placeholder="e.g. BAY_DOOR_04" 
+                      className="crud-input"
+                    />
+                  </div>
+                  <div style={{ height: '124px' }}></div>
+                  <button type="submit" className="action-btn sync-btn" style={{ height: '40px' }}>
+                    Register Bay Door
+                  </button>
+                </form>
+
+                <div className="master-data-list">
+                  <label>Current Bays</label>
+                  <div className="crud-table-container">
+                    <table className="crud-table">
+                      <thead>
+                        <tr>
+                          <th>Bay Door ID</th>
+                          <th>Active Truck</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {bays.map(b => (
+                          <tr key={b.bayDoorId}>
+                            <td>{b.bayDoorId}</td>
+                            <td>{b.activeTruckId || 'Idle'}</td>
+                            <td>
+                              <button 
+                                type="button" 
+                                onClick={() => handleDeleteBay(b.bayDoorId)} 
+                                className="delete-row-btn"
+                              >
+                                Remove
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+            </div>
 
             {crudMessage && (
-              <div className={`status-toast ${crudError ? 'error-text' : 'success-text'}`} style={{ marginBottom: '20px' }}>
+              <div className={`status-toast ${crudError ? 'error-text' : 'success-text'}`} style={{ marginTop: '20px' }}>
                 {crudMessage}
               </div>
             )}
-
-            <div className="master-data-list">
-              <label>Current Registrations in System</label>
-              <div className="crud-table-container">
-                <table className="crud-table">
-                  <thead>
-                    <tr>
-                      <th>Truck ID</th>
-                      <th>Driver</th>
-                      <th>Destination</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {truck.map(t => (
-                      <tr key={t.truckId}>
-                        <td>{t.truckId}</td>
-                        <td>{t.driverName}</td>
-                        <td>{t.destinationCity}</td>
-                        <td>
-                          <button 
-                            type="button" 
-                            onClick={() => handleDeleteTruck(t.truckId)} 
-                            className="delete-row-btn"
-                          >
-                            Remove
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </div>
         )}
 

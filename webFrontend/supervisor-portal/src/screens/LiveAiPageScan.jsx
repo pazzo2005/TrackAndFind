@@ -14,6 +14,7 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
   const animationFrameRef = useRef(null);
   const isProcessingFrame = useRef(false);
   const activeStreamRef = useRef(null);
+  const lastOcrTime = useRef(0);
 
   // 1. Fire Up High-Performance Video Capture Stream
   const startScanningFeed = async () => {
@@ -90,50 +91,54 @@ export default function LiveAIScanPage({ activeBay, onBack }) {
     }
 
     // --- PHASE 2: FALLBACK TO DEEP LEARNING NEURAL TEXT EXTRACTOR ---
-    if (!finalExtractedToken) {
-      try {
-        // 1. Create a smaller temporary canvas to crop to the center reticle area (180x180 px)
-        const ocrCanvas = document.createElement('canvas');
-        ocrCanvas.width = 200;
-        ocrCanvas.height = 200;
-        const ocrCtx = ocrCanvas.getContext('2d');
-        
-        // Define the crop coordinates (center of the video)
-        const cropSize = Math.min(canvas.width, canvas.height) * 0.55; // crop 55% of the frame height
-        const sx = (canvas.width - cropSize) / 2;
-        const sy = (canvas.height - cropSize) / 2;
-        
-        // Draw the cropped area
-        ocrCtx.drawImage(canvas, sx, sy, cropSize, cropSize, 0, 0, 200, 200);
+    const now = Date.now();
+    if (!finalExtractedToken && (now - lastOcrTime.current > 1000)) {
+      if (canvas.width >= 100 && canvas.height >= 100) {
+        lastOcrTime.current = now;
+        try {
+          // 1. Create a smaller temporary canvas to crop to the center reticle area (180x180 px)
+          const ocrCanvas = document.createElement('canvas');
+          ocrCanvas.width = 200;
+          ocrCanvas.height = 200;
+          const ocrCtx = ocrCanvas.getContext('2d');
+          
+          // Define the crop coordinates (center of the video)
+          const cropSize = Math.min(canvas.width, canvas.height) * 0.55; // crop 55% of the frame height
+          const sx = (canvas.width - cropSize) / 2;
+          const sy = (canvas.height - cropSize) / 2;
+          
+          // Draw the cropped area
+          ocrCtx.drawImage(canvas, sx, sy, cropSize, cropSize, 0, 0, 200, 200);
 
-        // 2. Preprocess: Convert to grayscale and apply thresholding (binarize)
-        const imgData = ocrCtx.getImageData(0, 0, 200, 200);
-        const data = imgData.data;
-        for (let i = 0; i < data.length; i += 4) {
-          const r = data[i];
-          const g = data[i+1];
-          const b = data[i+2];
-          const grayscale = 0.3 * r + 0.59 * g + 0.11 * b;
-          // Threshold: if pixel brightness > 120, make it white, else black
-          const v = grayscale > 120 ? 255 : 0;
-          data[i] = v;     // R
-          data[i+1] = v;   // G
-          data[i+2] = v;   // B
+          // 2. Preprocess: Convert to grayscale and apply thresholding (binarize)
+          const imgData = ocrCtx.getImageData(0, 0, 200, 200);
+          const data = imgData.data;
+          for (let i = 0; i < data.length; i += 4) {
+            const r = data[i];
+            const g = data[i+1];
+            const b = data[i+2];
+            const grayscale = 0.3 * r + 0.59 * g + 0.11 * b;
+            // Threshold: if pixel brightness > 120, make it white, else black
+            const v = grayscale > 120 ? 255 : 0;
+            data[i] = v;     // R
+            data[i+1] = v;   // G
+            data[i+2] = v;   // B
+          }
+          ocrCtx.putImageData(imgData, 0, 0);
+
+          // 3. Run Tesseract on the clean cropped image
+          const { data: { text } } = await Tesseract.recognize(ocrCanvas, 'eng', {
+            tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-' // Optimization mask
+          });
+
+          // Use a RegEx token filter to pull your precise serial ID
+          const trackingMatch = text.match(/PKG-\d+/);
+          if (trackingMatch) {
+            finalExtractedToken = trackingMatch[0];
+          }
+        } catch (ocrErr) {
+          console.error("OCR Frame Processing skipped:", ocrErr);
         }
-        ocrCtx.putImageData(imgData, 0, 0);
-
-        // 3. Run Tesseract on the clean cropped image
-        const { data: { text } } = await Tesseract.recognize(ocrCanvas, 'eng', {
-          tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-' // Optimization mask
-        });
-
-        // Use a RegEx token filter to pull your precise serial ID
-        const trackingMatch = text.match(/PKG-\d+/);
-        if (trackingMatch) {
-          finalExtractedToken = trackingMatch[0];
-        }
-      } catch (ocrErr) {
-        console.error("OCR Frame Processing skipped:", ocrErr);
       }
     }
 

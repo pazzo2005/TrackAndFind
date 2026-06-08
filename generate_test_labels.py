@@ -29,7 +29,7 @@ def make_premium_label(package_id, destination_bay, weight, priority):
         font_header_sub = ImageFont.truetype("arial.ttf", 9)
         font_header_right = ImageFont.truetype("arialbd.ttf", 11)
         font_heading = ImageFont.truetype("arialbd.ttf", 10)
-        font_bay = ImageFont.truetype("arialbd.ttf", 64)
+        font_bay = ImageFont.truetype("arialbd.ttf", 32 if len(destination_bay) > 8 else 64)
         font_sub = ImageFont.truetype("arialbd.ttf", 24)
         font_zone = ImageFont.truetype("arial.ttf", 14)
         font_strip = ImageFont.truetype("arialbd.ttf", 12)
@@ -55,7 +55,8 @@ def make_premium_label(package_id, destination_bay, weight, priority):
 
     # LEFT PANEL (x = 10 to 310)
     draw.text((20, 75), "DEST.", fill="black", font=font_heading)
-    draw.text((20, 85), destination_bay, fill="black", font=font_bay)
+    bay_y = 105 if len(destination_bay) > 8 else 85
+    draw.text((20, bay_y), destination_bay, fill="black", font=font_bay)
     # Thick line under bay ID
     draw.line([20, 165, 180, 165], fill="black", width=3)
     
@@ -142,6 +143,6 @@ def make_premium_label(package_id, destination_bay, weight, priority):
 
 if __name__ == "__main__":
     # Generate premium labels for our testing matrix
-    make_premium_label("PKG-101", "BAY-01", "14.50", "EXPRESS")
-    make_premium_label("PKG-102", "BAY-02", "22.40", "STANDARD")
-    make_premium_label("PKG-999", "BAY-03", "05.10", "EXPRESS")
+    make_premium_label("PKG-101", "BAY_DOOR_01", "14.50", "EXPRESS")
+    make_premium_label("PKG-102", "BAY_DOOR_02", "22.40", "STANDARD")
+    make_premium_label("PKG-999", "BAY_DOOR_03", "05.10", "EXPRESS")

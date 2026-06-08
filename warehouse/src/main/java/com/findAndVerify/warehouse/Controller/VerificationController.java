@@ -149,6 +149,36 @@ public class VerificationController {
         ));
     }
 
+    @GetMapping("/bays")
+    public List<BayDoorRouting> getBays() {
+        return bayDoorRoutingRepo.findAll();
+    }
+
+    @PostMapping("/bays")
+    public ResponseEntity<?> addBay(@RequestBody BayDoorRouting newBay) {
+        if (newBay.getBayDoorId() == null || newBay.getBayDoorId().trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "status", "ERROR",
+                "message", "Bay door ID cannot be empty."
+            ));
+        }
+        newBay.setBayDoorId(newBay.getBayDoorId().trim().toUpperCase());
+        bayDoorRoutingRepo.save(newBay);
+        return ResponseEntity.ok(Map.of(
+            "status", "SUCCESS",
+            "message", "Bay door " + newBay.getBayDoorId() + " successfully registered in database."
+        ));
+    }
+
+    @DeleteMapping("/bays/{bayDoorId}")
+    public ResponseEntity<?> deleteBay(@PathVariable String bayDoorId) {
+        bayDoorRoutingRepo.deleteById(bayDoorId);
+        return ResponseEntity.ok(Map.of(
+            "status", "SUCCESS",
+            "message", "Bay door " + bayDoorId + " successfully removed from database."
+        ));
+    }
+
     @PostMapping("/config/reset-manifest")
     public ResponseEntity<?> resetManifest() {
         // 1. Clear all Redis cache entries for packages first
@@ -219,24 +249,47 @@ public class VerificationController {
         }
 
         try {
-            if (dataSource instanceof HikariDataSource) {
-                HikariDataSource hikariDS = (HikariDataSource) dataSource;
+            if (dataSource instanceof com.findAndVerify.warehouse.config.DynamicDataSource) {
+                com.findAndVerify.warehouse.config.DynamicDataSource dynamicDS = (com.findAndVerify.warehouse.config.DynamicDataSource) dataSource;
                 
-                // Use reflection to unseal HikariConfig temporarily
-                java.lang.reflect.Field field = com.zaxxer.hikari.HikariConfig.class.getDeclaredField("isSealed");
-                field.setAccessible(true);
-                field.set(hikariDS, false);
-                
-                // Update credentials and JDBC URL dynamically
-                hikariDS.setJdbcUrl(dbUrl);
-                hikariDS.setUsername(username);
-                hikariDS.setPassword(password);
-                
-                // Reseal
-                field.set(hikariDS, true);
-                
-                if (hikariDS.getHikariPoolMXBean() != null) {
-                    hikariDS.getHikariPoolMXBean().softEvictConnections();
+                // 1. Create a new HikariDataSource
+                HikariDataSource newHikari = new HikariDataSource();
+                newHikari.setJdbcUrl(dbUrl);
+                newHikari.setUsername(username);
+                newHikari.setPassword(password);
+                newHikari.setDriverClassName("org.postgresql.Driver");
+
+                // Copy pool parameters from active pool
+                DataSource activeDS = dynamicDS.getTargetDataSource();
+                if (activeDS instanceof HikariDataSource) {
+                    HikariDataSource oldHikari = (HikariDataSource) activeDS;
+                    newHikari.setConnectionTimeout(oldHikari.getConnectionTimeout());
+                    newHikari.setMaximumPoolSize(oldHikari.getMaximumPoolSize());
+                    newHikari.setIdleTimeout(oldHikari.getIdleTimeout());
+                    newHikari.setMinimumIdle(oldHikari.getMinimumIdle());
+                }
+
+                // 2. Validate connection before swapping
+                try (java.sql.Connection conn = newHikari.getConnection()) {
+                    System.out.println("[DATABASE CONFIGURATION] New connection to " + dbUrl + " validated successfully!");
+                } catch (Exception connEx) {
+                    newHikari.close();
+                    System.err.println("[DATABASE CONFIGURATION ERROR] Pre-connection validation failed: " + connEx.getMessage());
+                    return ResponseEntity.badRequest().body(Map.of(
+                        "status", "ERROR",
+                        "message", "Failed to connect to the new database: " + connEx.getMessage()
+                    ));
+                }
+
+                // 3. Hot-swap the underlying target datasource
+                dynamicDS.replaceTargetDataSource(newHikari);
+
+                // 4. Clear the Redis cache to prevent ID conflicts between databases
+                try {
+                    manifestService.clearAllCache();
+                    System.out.println("[DATABASE CONFIGURATION UPDATED] Redis cache flushed successfully.");
+                } catch (Exception e) {
+                    System.err.println("[DATABASE CONFIGURATION ERROR] Failed to flush Redis cache: " + e.getMessage());
                 }
                 
                 System.out.println("[DATABASE CONFIGURATION UPDATED] Re-routed database pool to: " + dbUrl);
@@ -247,7 +300,7 @@ public class VerificationController {
             } else {
                 return ResponseEntity.internalServerError().body(Map.of(
                     "status", "ERROR",
-                    "message", "DataSource is not an instance of HikariDataSource. Cannot update dynamically."
+                    "message", "DataSource is not an instance of DynamicDataSource. Cannot update dynamically."
                 ));
             }
         } catch (Exception e) {
@@ -261,8 +314,13 @@ public class VerificationController {
     @GetMapping("/config/database")
     public ResponseEntity<?> getDatabaseConfig() {
         try {
-            if (dataSource instanceof HikariDataSource) {
-                HikariDataSource hikariDS = (HikariDataSource) dataSource;
+            DataSource activeDS = dataSource;
+            if (dataSource instanceof com.findAndVerify.warehouse.config.DynamicDataSource) {
+                activeDS = ((com.findAndVerify.warehouse.config.DynamicDataSource) dataSource).getTargetDataSource();
+            }
+
+            if (activeDS instanceof HikariDataSource) {
+                HikariDataSource hikariDS = (HikariDataSource) activeDS;
                 String jdbcUrl = hikariDS.getJdbcUrl();
                 String username = hikariDS.getUsername();
                 

@@ -5,12 +5,14 @@ const { Pool } = require('pg'); // Clean import at the top
  * @returns {Promise<String>}
  */
 async function getTableSchema(tableName, cleintDB) {
+     const isLocal = cleintDB.host === 'postgres-db' || cleintDB.host === 'localhost' || cleintDB.host === '127.0.0.1';
      const dynamoDB = new Pool({
         host: cleintDB.host,
         user: cleintDB.username,
         password: cleintDB.password,
         database: cleintDB.databaseName,
-        port: cleintDB.port || 5432
+        port: cleintDB.port || 5432,
+        ssl: isLocal ? false : { rejectUnauthorized: false }
      });
      
      const client = await dynamoDB.connect();

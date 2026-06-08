@@ -15,12 +15,12 @@ export default function AiGatewayTerminal() {
     setAiError('');
     setAiResults(null);
 
-    const dbMode = localStorage.getItem('db_mode') || 'local';
-    const host = dbMode === 'local' ? 'postgres-db' : (localStorage.getItem('db_host') || '');
-    const username = dbMode === 'local' ? 'warehouse_admin' : (localStorage.getItem('db_user') || '');
-    const password = dbMode === 'local' ? 'supersecretpassword' : (localStorage.getItem('db_pass') || '');
-    const databaseName = dbMode === 'local' ? 'warehouse_ledger' : (localStorage.getItem('db_name') || '');
-    const port = dbMode === 'local' ? 5432 : parseInt(localStorage.getItem('db_port') || '5432', 10);
+    const dbMode = (localStorage.getItem('db_mode') || 'local').trim();
+    const host = dbMode === 'local' ? 'postgres-db' : (localStorage.getItem('db_host') || '').trim();
+    const username = dbMode === 'local' ? 'warehouse_admin' : (localStorage.getItem('db_user') || '').trim();
+    const password = dbMode === 'local' ? 'supersecretpassword' : (localStorage.getItem('db_pass') || '').trim();
+    const databaseName = dbMode === 'local' ? 'warehouse_ledger' : (localStorage.getItem('db_name') || '').trim();
+    const port = dbMode === 'local' ? 5432 : parseInt((localStorage.getItem('db_port') || '5432').trim(), 10);
 
     try {
       const res = await axios.post('http://localhost:3000/api/v1/query', {

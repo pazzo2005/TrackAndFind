@@ -18,17 +18,26 @@ import { Picker } from '@react-native-picker/picker';
 import axios from 'axios';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('config'); // config, scanner, ai
+  const [activeTab, setActiveTab] = useState('config'); // config, fleet, scanner, ai
   const scrollViewRef = useRef(null);
   const [laptopIp, setLaptopIp] = useState('192.168.1.100'); // Change to your local machine IP
   const [isIpLocked, setIsIpLocked] = useState(false);
 
   // Config States
-  const [selectedBay, setSelectedBay] = useState('BAY_DOOR_01');
+  const [selectedBay, setSelectedBay] = useState('');
   const [selectedTruck, setSelectedTruck] = useState('');
   const [trucks, setTrucks] = useState([]);
+  const [bays, setBays] = useState([]);
   const [configMessage, setConfigMessage] = useState('');
   const [configSuccess, setConfigSuccess] = useState(true);
+
+  // Fleet CRUD States
+  const [newTruckId, setNewTruckId] = useState('');
+  const [newDriverName, setNewDriverName] = useState('');
+  const [newDestination, setNewDestination] = useState('');
+  const [newBayId, setNewBayId] = useState('');
+  const [crudMessage, setCrudMessage] = useState('');
+  const [crudSuccess, setCrudSuccess] = useState(true);
 
   // Camera Scanner States
   const [permission, requestPermission] = useCameraPermissions();
@@ -50,9 +59,20 @@ export default function App() {
   const [dbName, setDbName] = useState('warehouse_ledger');
   const [dbPort, setDbPort] = useState(5432);
 
+  // Database Configuration Inputs
+  const [dbMode, setDbMode] = useState('local'); // local, cloud
+  const [dbHostInput, setDbHostInput] = useState('');
+  const [dbNameInput, setDbNameInput] = useState('');
+  const [dbUserInput, setDbUserInput] = useState('');
+  const [dbPassInput, setDbPassInput] = useState('');
+  const [dbPortInput, setDbPortInput] = useState('5432');
+  const [dbConfigMessage, setDbConfigMessage] = useState('');
+  const [dbConfigSuccess, setDbConfigSuccess] = useState(true);
+  const [dbLoading, setDbLoading] = useState(false);
+
   const navigateToTab = (tabName) => {
     setActiveTab(tabName);
-    const index = tabName === 'config' ? 0 : tabName === 'scanner' ? 1 : 2;
+    const index = tabName === 'config' ? 0 : tabName === 'fleet' ? 1 : tabName === 'scanner' ? 2 : 3;
     scrollViewRef.current?.scrollTo({ x: index * screenWidth, animated: true });
     
     // Stop camera if navigating away from scanner
@@ -64,7 +84,7 @@ export default function App() {
   const handleScrollEnd = (e) => {
     const contentOffset = e.nativeEvent.contentOffset.x;
     const index = Math.round(contentOffset / screenWidth);
-    const tabs = ['config', 'scanner', 'ai'];
+    const tabs = ['config', 'fleet', 'scanner', 'ai'];
     const tabName = tabs[index];
     setActiveTab(tabName);
     
@@ -74,14 +94,38 @@ export default function App() {
     }
   };
 
+  // Fetch Bays from Spring Boot
+  const fetchBaysList = async () => {
+    try {
+      const res = await axios.get(`http://${laptopIp}:8080/api/bays`, { timeout: 3000 });
+      setBays(res.data);
+      if (res.data && res.data.length > 0) {
+        const storedBay = selectedBay;
+        if (!storedBay || !res.data.some(b => b.bayDoorId === storedBay)) {
+          setSelectedBay(res.data[0].bayDoorId);
+        }
+      } else {
+        setSelectedBay('');
+      }
+    } catch (err) {
+      console.error("Failed to fetch loading bays:", err);
+    }
+  };
+
   // Fetch Trucks from Spring Boot
   const fetchTrucksList = async () => {
     try {
       const res = await axios.get(`http://${laptopIp}:8080/api/trucks`, { timeout: 3000 });
       setTrucks(res.data);
       if (res.data && res.data.length > 0) {
-        setSelectedTruck(res.data[0].truckId);
+        if (!selectedTruck || !res.data.some(t => t.truckId === selectedTruck)) {
+          setSelectedTruck(res.data[0].truckId);
+        }
+      } else {
+        setSelectedTruck('');
       }
+
+      await fetchBaysList();
 
       // Sync active database settings from backend dynamically
       try {
@@ -92,6 +136,14 @@ export default function App() {
           setDbPass(dbRes.data.password);
           setDbName(dbRes.data.databaseName);
           setDbPort(dbRes.data.port);
+
+          // Pre-populate input fields
+          setDbHostInput(dbRes.data.host);
+          setDbUserInput(dbRes.data.username);
+          setDbPassInput(dbRes.data.password);
+          setDbNameInput(dbRes.data.databaseName);
+          setDbPortInput(dbRes.data.port ? dbRes.data.port.toString() : '5432');
+          setDbMode(dbRes.data.isCloud ? 'cloud' : 'local');
         }
       } catch (dbErr) {
         console.warn("Failed to synchronize active database configuration metadata:", dbErr);
@@ -128,6 +180,178 @@ export default function App() {
       console.error(err);
       setConfigSuccess(false);
       setConfigMessage('API Error: Failed to publish mapping.');
+    }
+  };
+
+  // Handle Add Truck
+  const handleAddTruck = async () => {
+    if (!newTruckId.trim() || !newDriverName.trim() || !newDestination.trim()) {
+      setCrudSuccess(false);
+      setCrudMessage('All truck registration fields are required.');
+      return;
+    }
+
+    setCrudMessage('Registering new logistics fleet...');
+    setCrudSuccess(false);
+
+    try {
+      const res = await axios.post(`http://${laptopIp}:8080/api/trucks`, {
+        truckId: newTruckId.trim().toUpperCase(),
+        driverName: newDriverName.trim(),
+        destinationCity: newDestination.trim()
+      });
+
+      if (res.status === 200 || res.data.status === 'SUCCESS') {
+        setCrudSuccess(true);
+        setCrudMessage(`Success: registered ${newTruckId} to database.`);
+        setNewTruckId('');
+        setNewDriverName('');
+        setNewDestination('');
+        fetchTrucksList(); // refresh trucks list and dropdowns
+      }
+    } catch (err) {
+      console.error(err);
+      setCrudSuccess(false);
+      setCrudMessage('Error registering truck: duplicate key or database connection error.');
+    }
+  };
+
+  // Handle Delete Truck
+  const handleDeleteTruck = async (truckId) => {
+    setCrudMessage(`Deregistering truck ${truckId}...`);
+    setCrudSuccess(false);
+
+    try {
+      const res = await axios.delete(`http://${laptopIp}:8080/api/trucks/${truckId}`);
+      if (res.status === 200 || res.data.status === 'SUCCESS') {
+        setCrudSuccess(true);
+        setCrudMessage(`Success: removed ${truckId} from database.`);
+        fetchTrucksList(); // refresh trucks list and dropdowns
+      }
+    } catch (err) {
+      console.error(err);
+      setCrudSuccess(false);
+      setCrudMessage('Error deleting truck: check active assignments.');
+    }
+  };
+
+  // Handle Add Loading Bay
+  const handleAddBay = async () => {
+    if (!newBayId.trim()) {
+      setCrudSuccess(false);
+      setCrudMessage('Bay Door ID is required.');
+      return;
+    }
+
+    setCrudMessage('Registering new Loading Bay Door...');
+    setCrudSuccess(false);
+
+    try {
+      const res = await axios.post(`http://${laptopIp}:8080/api/bays`, {
+        bayDoorId: newBayId.trim().toUpperCase()
+      });
+
+      if (res.status === 200 || res.data.status === 'SUCCESS') {
+        setCrudSuccess(true);
+        setCrudMessage(`Success: registered ${newBayId.trim().toUpperCase()} to database.`);
+        setNewBayId('');
+        fetchTrucksList(); // refresh bays list
+      }
+    } catch (err) {
+      console.error(err);
+      setCrudSuccess(false);
+      setCrudMessage('Error registering bay door: duplicate key or connection error.');
+    }
+  };
+
+  // Handle Delete Loading Bay
+  const handleDeleteBay = async (bayId) => {
+    setCrudMessage(`Deregistering loading bay ${bayId}...`);
+    setCrudSuccess(false);
+
+    try {
+      const res = await axios.delete(`http://${laptopIp}:8080/api/bays/${bayId}`);
+      if (res.status === 200 || res.data.status === 'SUCCESS') {
+        setCrudSuccess(true);
+        setCrudMessage(`Success: removed ${bayId} from database.`);
+        fetchTrucksList(); // refresh bays list
+      }
+    } catch (err) {
+      console.error(err);
+      setCrudSuccess(false);
+      setCrudMessage('Error deleting loading bay: connection error.');
+    }
+  };
+
+  // Handle Reset Manifest
+  const handleResetManifest = async () => {
+    setConfigMessage('Resetting manifest database ledger...');
+    try {
+      const res = await axios.post(`http://${laptopIp}:8080/api/config/reset-manifest`);
+      if (res.data.status === 'SUCCESS') {
+        setConfigSuccess(true);
+        setConfigMessage('Success: Active manifest reset for re-testing!');
+        fetchTrucksList(); // refresh dropdown lists
+      }
+    } catch (err) {
+      console.error(err);
+      setConfigSuccess(false);
+      setConfigMessage('API Error: Failed to reset manifest.');
+    }
+  };
+
+  // Handle Save Database Configuration
+  const handleSaveDbConfig = async () => {
+    setDbLoading(true);
+    setDbConfigMessage('Updating database connection pool...');
+    setDbConfigSuccess(true);
+
+    let targetUrl = '';
+    let targetUser = '';
+    let targetPass = '';
+
+    if (dbMode === 'local') {
+      targetUrl = 'jdbc:postgresql://postgres-db:5432/warehouse_ledger';
+      targetUser = 'warehouse_admin';
+      targetPass = 'supersecretpassword';
+    } else {
+      if (!dbHostInput.trim() || !dbNameInput.trim() || !dbUserInput.trim() || !dbPassInput.trim()) {
+        setDbConfigSuccess(false);
+        setDbConfigMessage('All cloud database fields are required.');
+        setDbLoading(false);
+        return;
+      }
+      targetUrl = `jdbc:postgresql://${dbHostInput.trim()}:${dbPortInput.trim()}/${dbNameInput.trim()}?sslmode=require`;
+      targetUser = dbUserInput.trim();
+      targetPass = dbPassInput.trim();
+    }
+
+    try {
+      const response = await axios.post(`http://${laptopIp}:8080/api/config/database`, {
+        dbUrl: targetUrl,
+        username: targetUser,
+        password: targetPass
+      });
+
+      if (response.status === 200 || response.data.status === 'SUCCESS') {
+        setDbConfigSuccess(true);
+        setDbConfigMessage(`Success: Database pool switched to ${dbMode === 'local' ? 'Local' : 'Cloud'} database.`);
+        
+        // Update local gateway states
+        setDbHost(dbHostInput);
+        setDbUser(targetUser);
+        setDbPass(targetPass);
+        setDbName(dbNameInput);
+        setDbPort(parseInt(dbPortInput));
+        
+        fetchTrucksList(); // refresh data
+      }
+    } catch (error) {
+      console.error(error);
+      setDbConfigSuccess(false);
+      setDbConfigMessage(error.response?.data?.message || 'Database connection test failed. Reverting.');
+    } finally {
+      setDbLoading(false);
     }
   };
 
@@ -260,9 +484,17 @@ export default function App() {
                       onValueChange={(itemValue) => setSelectedBay(itemValue)}
                       dropdownIconColor="#66fcf1"
                     >
-                      <Picker.Item label="Bay Door 1" value="BAY_DOOR_01" />
-                      <Picker.Item label="Bay Door 2" value="BAY_DOOR_02" />
-                      <Picker.Item label="Bay Door 3" value="BAY_DOOR_03" />
+                      {bays.length === 0 ? (
+                        <Picker.Item label="-- No Bays Configured --" value="" />
+                      ) : (
+                        bays.map(b => (
+                          <Picker.Item 
+                            key={b.bayDoorId} 
+                            label={`${b.bayDoorId} ${b.activeTruckId ? `(Hosting ${b.activeTruckId})` : '(Idle)'}`} 
+                            value={b.bayDoorId} 
+                          />
+                        ))
+                      )}
                     </Picker>
                   </View>
                 </View>
@@ -287,18 +519,241 @@ export default function App() {
                   <Text style={styles.btnText}>Lock Gate Route Mapping</Text>
                 </TouchableOpacity>
 
+                <TouchableOpacity 
+                  style={[styles.btnAction, styles.btnStart, { marginTop: 10 }]} 
+                  onPress={handleResetManifest}
+                >
+                  <Text style={[styles.btnText, { color: '#66fcf1' }]}>Refresh Record & Reset Manifest</Text>
+                </TouchableOpacity>
+
                 {configMessage ? (
                   <Text style={[styles.messageText, configSuccess ? styles.textSuccess : styles.textError]}>
                     {configMessage}
                   </Text>
                 ) : null}
+
+                {/* Database Settings Section */}
+                <Text style={[styles.sectionTitle, { marginTop: 35 }]}>Database Storage Settings</Text>
+                <Text style={styles.descText}>Hot-swap active ledger database configuration dynamically.</Text>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Database Mode</Text>
+                  <View style={styles.pickerWrapper}>
+                    <Picker
+                      selectedValue={dbMode}
+                      style={styles.picker}
+                      onValueChange={(itemValue) => setDbMode(itemValue)}
+                      dropdownIconColor="#66fcf1"
+                    >
+                      <Picker.Item label="On-Premise (Local Container)" value="local" />
+                      <Picker.Item label="Cloud PostgreSQL (Neon/External)" value="cloud" />
+                    </Picker>
+                  </View>
+                </View>
+
+                {dbMode === 'cloud' && (
+                  <View style={styles.crudFormContainer}>
+                    <View style={styles.formGroup}>
+                      <Text style={styles.label}>Cloud Database Host</Text>
+                      <TextInput
+                        style={styles.crudInput}
+                        value={dbHostInput}
+                        onChangeText={setDbHostInput}
+                        placeholder="e.g. ep-hidden-sky.neon.tech"
+                        placeholderTextColor="#8892b0"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <View style={styles.formGroup}>
+                      <Text style={styles.label}>Database Name</Text>
+                      <TextInput
+                        style={styles.crudInput}
+                        value={dbNameInput}
+                        onChangeText={setDbNameInput}
+                        placeholder="e.g. neondb"
+                        placeholderTextColor="#8892b0"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <View style={styles.formGroup}>
+                      <Text style={styles.label}>Database Username</Text>
+                      <TextInput
+                        style={styles.crudInput}
+                        value={dbUserInput}
+                        onChangeText={setDbUserInput}
+                        placeholder="e.g. neondb_owner"
+                        placeholderTextColor="#8892b0"
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <View style={styles.formGroup}>
+                      <Text style={styles.label}>Database Password</Text>
+                      <TextInput
+                        style={styles.crudInput}
+                        value={dbPassInput}
+                        onChangeText={setDbPassInput}
+                        placeholder="Enter password"
+                        placeholderTextColor="#8892b0"
+                        secureTextEntry
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <View style={styles.formGroup}>
+                      <Text style={styles.label}>Database Port</Text>
+                      <TextInput
+                        style={styles.crudInput}
+                        value={dbPortInput}
+                        onChangeText={setDbPortInput}
+                        placeholder="5432"
+                        placeholderTextColor="#8892b0"
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+                )}
+
+                <TouchableOpacity 
+                  style={styles.btnAction} 
+                  onPress={handleSaveDbConfig}
+                  disabled={dbLoading}
+                >
+                  {dbLoading ? (
+                    <ActivityIndicator color="#0b0c10" />
+                  ) : (
+                    <Text style={styles.btnText}>Apply DB Configuration</Text>
+                  )}
+                </TouchableOpacity>
+
+                {dbConfigMessage ? (
+                  <Text style={[styles.messageText, dbConfigSuccess ? styles.textSuccess : styles.textError]}>
+                    {dbConfigMessage}
+                  </Text>
+                ) : null}
+
               </ScrollView>
             </View>
 
-            {/* TAB 2: Scanner */}
+            {/* TAB 2: Fleet & Bay CRUD */}
+            <View style={{ width: screenWidth }}>
+              <ScrollView contentContainerStyle={styles.tabContent}>
+                <Text style={styles.sectionTitle}>2. Fleet & Bay Manager</Text>
+                <Text style={styles.descText}>Register or deregister inbound logistics fleet and loading bays.</Text>
+
+                {/* SECTION A: FLEET CRUD */}
+                <Text style={[styles.label, { fontSize: 13, borderBottomWidth: 1, borderBottomColor: '#1f2833', paddingBottom: 6, marginBottom: 12 }]}>Fleet Management</Text>
+                <View style={styles.crudFormContainer}>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Truck Serial ID</Text>
+                    <TextInput
+                      style={styles.crudInput}
+                      value={newTruckId}
+                      onChangeText={setNewTruckId}
+                      placeholder="e.g. TRUCK_D"
+                      placeholderTextColor="#8892b0"
+                      autoCapitalize="characters"
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Driver Full Name</Text>
+                    <TextInput
+                      style={styles.crudInput}
+                      value={newDriverName}
+                      onChangeText={setNewDriverName}
+                      placeholder="e.g. Sunil Kumar"
+                      placeholderTextColor="#8892b0"
+                    />
+                  </View>
+
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Destination City</Text>
+                    <TextInput
+                      style={styles.crudInput}
+                      value={newDestination}
+                      onChangeText={setNewDestination}
+                      placeholder="e.g. Mumbai"
+                      placeholderTextColor="#8892b0"
+                    />
+                  </View>
+
+                  <TouchableOpacity style={styles.btnAction} onPress={handleAddTruck}>
+                    <Text style={styles.btnText}>Register Logistics Fleet</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Fleet list section */}
+                <View style={styles.fleetListContainer}>
+                  <Text style={styles.label}>Active System Fleet Registrations</Text>
+                  {trucks && trucks.length > 0 ? (
+                    trucks.map(t => (
+                      <View key={t.truckId} style={styles.truckCard}>
+                        <View style={styles.truckCardDetails}>
+                          <Text style={styles.truckIdText}>{t.truckId}</Text>
+                          <Text style={styles.truckDriverText}>Driver: {t.driverName}</Text>
+                          <Text style={styles.truckDestText}>Dest: {t.destinationCity}</Text>
+                        </View>
+                        <TouchableOpacity style={styles.btnDeleteTruck} onPress={() => handleDeleteTruck(t.truckId)}>
+                          <Text style={styles.btnDeleteText}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noResultsText}>No fleets currently registered.</Text>
+                  )}
+                </View>
+
+                {/* SECTION B: BAYS CRUD */}
+                <Text style={[styles.label, { fontSize: 13, borderBottomWidth: 1, borderBottomColor: '#1f2833', paddingBottom: 6, marginBottom: 12, marginTop: 20 }]}>Loading Bay Management</Text>
+                <View style={styles.crudFormContainer}>
+                  <View style={styles.formGroup}>
+                    <Text style={styles.label}>Bay Door Terminal ID</Text>
+                    <TextInput
+                      style={styles.crudInput}
+                      value={newBayId}
+                      onChangeText={setNewBayId}
+                      placeholder="e.g. BAY_DOOR_04"
+                      placeholderTextColor="#8892b0"
+                      autoCapitalize="characters"
+                    />
+                  </View>
+
+                  <TouchableOpacity style={styles.btnAction} onPress={handleAddBay}>
+                    <Text style={styles.btnText}>Register Loading Bay</Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Bays list section */}
+                <View style={styles.fleetListContainer}>
+                  <Text style={styles.label}>Active System Loading Bays</Text>
+                  {bays && bays.length > 0 ? (
+                    bays.map(b => (
+                      <View key={b.bayDoorId} style={styles.truckCard}>
+                        <View style={styles.truckCardDetails}>
+                          <Text style={styles.truckIdText}>{b.bayDoorId}</Text>
+                          <Text style={styles.truckDriverText}>Status: {b.activeTruckId ? `Hosting ${b.activeTruckId}` : 'Idle'}</Text>
+                        </View>
+                        <TouchableOpacity style={styles.btnDeleteTruck} onPress={() => handleDeleteBay(b.bayDoorId)}>
+                          <Text style={styles.btnDeleteText}>Remove</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))
+                  ) : (
+                    <Text style={styles.noResultsText}>No loading bays currently registered.</Text>
+                  )}
+                </View>
+
+                {crudMessage ? (
+                  <Text style={[styles.messageText, crudSuccess ? styles.textSuccess : styles.textError, { marginTop: 15 }]}>
+                    {crudMessage}
+                  </Text>
+                ) : null}
+              </ScrollView>
+            </View>
+
+            {/* TAB 3: Scanner */}
             <View style={{ width: screenWidth, flex: 1 }}>
               <View style={styles.tabContentFull}>
-                <Text style={styles.sectionTitle}>2. Live Scanner Terminal</Text>
+                <Text style={styles.sectionTitle}>3. Live Scanner Terminal</Text>
                 <Text style={styles.descText}>Active Bay: <Text style={{ color: '#66fcf1', fontWeight: 'bold' }}>{selectedBay}</Text></Text>
 
                 {scannerActive ? (
@@ -338,10 +793,10 @@ export default function App() {
               </View>
             </View>
 
-            {/* TAB 3: AI Gateway */}
+            {/* TAB 4: AI Gateway */}
             <View style={{ width: screenWidth }}>
               <ScrollView contentContainerStyle={styles.tabContent}>
-                <Text style={styles.sectionTitle}>3. AI Data Access Gateway</Text>
+                <Text style={styles.sectionTitle}>4. AI Data Access Gateway</Text>
                 <Text style={styles.descText}>Query the database ledger using plain language.</Text>
 
                 <View style={styles.formGroup}>
@@ -416,6 +871,13 @@ export default function App() {
               onPress={() => navigateToTab('config')}
             >
               <Text style={[styles.tabText, activeTab === 'config' ? styles.tabTextActive : null]}>Config</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={[styles.tabItem, activeTab === 'fleet' ? styles.tabItemActive : null]}
+              onPress={() => navigateToTab('fleet')}
+            >
+              <Text style={[styles.tabText, activeTab === 'fleet' ? styles.tabTextActive : null]}>Fleet & Bay</Text>
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -749,5 +1211,66 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: '#66fcf1',
+  },
+  crudFormContainer: {
+    backgroundColor: '#151a22',
+    padding: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1f2833',
+    marginBottom: 20,
+  },
+  crudInput: {
+    backgroundColor: '#1f2833',
+    color: '#ffffff',
+    borderRadius: 6,
+    padding: 10,
+    fontSize: 14,
+    height: 40,
+  },
+  fleetListContainer: {
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  truckCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#151a22',
+    padding: 15,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1f2833',
+    marginBottom: 10,
+  },
+  truckCardDetails: {
+    flex: 1,
+  },
+  truckIdText: {
+    color: '#66fcf1',
+    fontWeight: 'bold',
+    fontSize: 15,
+    marginBottom: 4,
+  },
+  truckDriverText: {
+    color: '#ffffff',
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  truckDestText: {
+    color: '#8892b0',
+    fontSize: 11,
+  },
+  btnDeleteTruck: {
+    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+    borderWidth: 1,
+    borderColor: '#e74c3c',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+  },
+  btnDeleteText: {
+    color: '#e74c3c',
+    fontSize: 11,
+    fontWeight: 'bold',
   }
 });
