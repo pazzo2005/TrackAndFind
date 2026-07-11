@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import api from '../config/api';
 import AiGatewayTerminal from '../components/AiGateway/AiGatewayTerminal';
 
 export default function AdminConfigPage({ onArmScanner }) {
@@ -51,7 +51,7 @@ export default function AdminConfigPage({ onArmScanner }) {
 
   // Fetch all trucks
   const fetchTrucks = () => {
-    axios.get("http://localhost:8080/api/trucks")
+    api.get("/trucks")
       .then(res => {
         setTruck(res.data);
         const storedTruck = localStorage.getItem('selectedTruck');
@@ -66,7 +66,7 @@ export default function AdminConfigPage({ onArmScanner }) {
   };
 
   const fetchBays = () => {
-    axios.get("http://localhost:8080/api/bays")
+    api.get("/bays")
       .then(res => {
         setBays(res.data);
         const storedBay = localStorage.getItem('selectedBay');
@@ -87,7 +87,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     fetchBays();
   }, []);
 
-  const API_URL = 'http://localhost:8080/api/config/assign-truck';
+  const API_URL = '/config/assign-truck';
 
   const handleAssignRoute = async (e) => {
     e.preventDefault();
@@ -95,7 +95,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     setIsError(false);
 
     try {
-      const response = await axios.put(API_URL, {
+      const response = await api.put(API_URL, {
         bayDoorId: selectedBay,
         truckId: selectedTruck
       });
@@ -122,7 +122,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     setIsError(false);
 
     try {
-      const response = await axios.post('http://localhost:8080/api/config/reset-manifest');
+      const response = await api.post('/config/reset-manifest');
       if (response.data.status === 'SUCCESS') {
         setStatusMessage('Success: Dispatched packages archived. Active manifest ready for re-testing!');
         setIsError(false);
@@ -147,7 +147,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     setCrudError(false);
 
     try {
-      const res = await axios.post('http://localhost:8080/api/trucks', {
+      const res = await api.post('/trucks', {
         truckId: newTruckId.trim().toUpperCase(),
         driverName: newDriverName.trim(),
         destinationCity: newDestination.trim()
@@ -173,7 +173,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     setCrudError(false);
 
     try {
-      const res = await axios.delete(`http://localhost:8080/api/trucks/${truckId}`);
+      const res = await api.delete(`/trucks/${truckId}`);
       if (res.status === 200 || res.data.status === 'SUCCESS') {
         setCrudError(false);
         setCrudMessage(`Success: removed ${truckId} from database.`);
@@ -198,7 +198,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     setCrudError(false);
 
     try {
-      const res = await axios.post('http://localhost:8080/api/bays', {
+      const res = await api.post('/bays', {
         bayDoorId: newBayId.trim().toUpperCase()
       });
 
@@ -220,7 +220,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     setCrudError(false);
 
     try {
-      const res = await axios.delete(`http://localhost:8080/api/bays/${bayId}`);
+      const res = await api.delete(`/bays/${bayId}`);
       if (res.status === 200 || res.data.status === 'SUCCESS') {
         setCrudError(false);
         setCrudMessage(`Success: removed ${bayId} from database.`);
@@ -260,7 +260,7 @@ export default function AdminConfigPage({ onArmScanner }) {
     }
 
     try {
-      const response = await axios.post('http://localhost:8080/api/config/database', {
+      const response = await api.post('/config/database', {
         dbUrl: targetUrl,
         username: targetUser,
         password: targetPass

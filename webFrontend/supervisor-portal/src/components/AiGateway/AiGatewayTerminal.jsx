@@ -23,7 +23,8 @@ export default function AiGatewayTerminal() {
     const port = dbMode === 'local' ? 5432 : parseInt((localStorage.getItem('db_port') || '5432').trim(), 10);
 
     try {
-      const res = await axios.post('http://localhost:3000/api/v1/query', {
+      const gatewayUrl = import.meta.env.VITE_AI_GATEWAY_URL || 'http://localhost:3000';
+      const res = await axios.post(`${gatewayUrl}/api/v1/query`, {
         targetTable: ["loading_manifest", "archived_manifest", "truck_inventory", "bay_door_routing"],
         intent: aiIntent.trim(),
         clientDB: {
